@@ -1,0 +1,14 @@
+{
+  "reportMissingModuleSource": false,
+  "reportMissingImports": false,
+  "reportUnknownMemberType": false,
+  "reportOptionalMemberAccess": false,
+  "reportArgumentType": false,
+  "reportOptionalCall": false,
+  "reportOptionalIterable": false,
+  "reportOptionalSubscript": false,
+  "reportUnusedImport": false,
+  "reportUnusedClass": false,
+  "reportUnusedFunction": false,
+  "reportGeneralTypeIssues": false
+}

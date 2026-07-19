@@ -75,11 +75,11 @@ class TaskRow(Gtk.Box):
         self.set_margin_bottom(3)
 
         top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        self.title_label = Gtk.Label(label=task.title)
-        self.title_label.set_halign(Gtk.Align.START)
-        self.title_label.set_hexpand(True)
-        self.title_label.set_ellipsize(3)
-        top.append(self.title_label)
+        self.status_desc = Gtk.Label(label=task.title)
+        self.status_desc.set_halign(Gtk.Align.START)
+        self.status_desc.set_hexpand(True)
+        self.status_desc.set_ellipsize(3)
+        top.append(self.status_desc)
 
         self.status_label = Gtk.Label(label=task.status)
         self.status_label.add_css_class("dim-label")
@@ -88,34 +88,45 @@ class TaskRow(Gtk.Box):
 
         self.progress_bar = Gtk.ProgressBar()
         self.progress_bar.set_fraction(task.progress)
-        self.progress_bar.set_show_text(True)
         self.append(self.progress_bar)
 
-        self.message_label = Gtk.Label(label="")
-        self.message_label.add_css_class("dim-label")
-        self.message_label.set_halign(Gtk.Align.START)
-        self.message_label.set_ellipsize(3)
-        self.append(self.message_label)
+        self.progress_text = Gtk.Label(label="")
+        self.progress_text.add_css_class("dim-label")
+        self.progress_text.set_halign(Gtk.Align.START)
+        self.progress_text.set_ellipsize(3)
+        self.append(self.progress_text)
 
     def on_updated(self, task, status, progress, message):
         self.status_label.set_text(status)
         self.progress_bar.set_fraction(progress)
 
         if status == "running":
-            if message and ("/" in message or "files" in message or "Indexing" in message):
-                self.progress_bar.set_text(message)
+            if message:
+                if "/" in message:
+                    self.progress_text.set_text(message)
+                    self.progress_bar.set_text("")
+                elif any(kw in message.lower() for kw in ["indexing", "syncing", "saving", "files"]):
+                    self.status_desc.set_text(message)
+                    self.progress_bar.set_text("")
+                    self.progress_text.set_text("")
+                else:
+                    self.progress_bar.set_text(message)
+                    self.progress_text.set_text("")
             elif progress > 0:
                 self.progress_bar.set_text(f"{int(progress * 100)}%")
+                self.progress_text.set_text("")
             else:
                 self.progress_bar.set_text("...")
+                self.progress_text.set_text("")
         elif status == "completed":
             self.progress_bar.set_text("Done")
             self.progress_bar.remove_css_class("running")
             self.progress_bar.add_css_class("success")
+            self.progress_text.set_text(message or "")
+            if message and message != "Already up to date":
+                self.status_desc.set_text(message)
         elif status == "failed":
             self.progress_bar.set_text("Failed")
             self.progress_bar.add_css_class("error")
             self.status_label.set_text(f"Error: {task.error}")
-
-        if message:
-            self.message_label.set_text(message)
+            self.progress_text.set_text("")

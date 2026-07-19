@@ -234,7 +234,7 @@ class SearchPage(Gtk.Box):
                 self.proc_mgr.add_task(
                     "import",
                     f"Import: {task.title}",
-                    {"album_dir": album_dir},
+                    {"album_dir": album_dir, "artist": task.data.get("artist", ""), "title": task.data.get("title", "")},
                 )
             GLib.timeout_add(2000, lambda: self._reset_button(button))
         elif status == "failed":

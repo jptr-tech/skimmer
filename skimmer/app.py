@@ -7,7 +7,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Gtk, GLib, Adw, Gdk
 
 from skimmer.config import load_config, save_config
-from skimmer.worker import ProcessingManager
+from skimmer.worker import ProcessingManager, Task
 from skimmer.library import LibraryPage
 from skimmer.search import SearchPage
 from skimmer.processing import ProcessingPage
@@ -177,6 +177,8 @@ class SkimmerApp(Adw.Application):
 
     def _on_proc_change(self, *args):
         self._update_proc_badge()
+        if isinstance(args[0], Task) and args[1] == "completed" and args[0].type == "import":
+            self.pages["library"]._refresh()
 
     def _update_proc_badge(self):
         active = sum(

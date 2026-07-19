@@ -5,12 +5,12 @@ import urllib.parse
 import urllib.request
 
 import gi
+gi.require_version("Adw", "1")
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
-gi.require_version("Adw", "1")
 gi.require_version("Pango", "1.0")
 gi.require_version("GdkPixbuf", "2.0")
-from gi.repository import Gtk, Gdk, GLib, Pango, GdkPixbuf, Adw
+from gi.repository import Adw, Gtk, Gdk, GLib, Pango, GdkPixbuf
 
 
 COVER_SIZE = 150
@@ -366,7 +366,8 @@ class AlbumDetail(Gtk.Box):
     def __init__(self, config, artist, album, year, tracks,
                  cover_path=None, cover_url=None,
                  on_back=None, on_download=None,
-                 album_path=None, on_set_cover=None):
+                 album_path=None, on_set_cover=None,
+                 player_bar=None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self.config = config
         self.album_path = album_path
@@ -375,6 +376,14 @@ class AlbumDetail(Gtk.Box):
         self._artist = artist
         self._album = album
         self._on_back_cb = on_back
+        self._player_bar = player_bar
+        self._tracks = sorted(
+            tracks,
+            key=lambda t: (
+                int(t.get("track", t.get("trackNumber", 0)) or 0),
+                int(t.get("trackNumber", 0) or 0),
+            ),
+        )
 
         scroll = Gtk.ScrolledWindow()
         scroll.set_vexpand(True)
@@ -450,9 +459,10 @@ class AlbumDetail(Gtk.Box):
         info_box.append(meta_box)
         wrapper.append(info_box)
 
-        track_list = Gtk.ListBox()
-        track_list.set_selection_mode(Gtk.SelectionMode.NONE)
-        for t in tracks:
+        self._track_list = Gtk.ListBox()
+        self._track_list.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self._track_list.connect("row-activated", self._on_track_activated)
+        for t in self._tracks:
             row = Gtk.ListBoxRow()
             hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
             hbox.set_margin_start(8)
@@ -484,9 +494,49 @@ class AlbumDetail(Gtk.Box):
                 hbox.append(art_lbl)
 
             row.set_child(hbox)
-            track_list.append(row)
+            self._track_list.append(row)
 
-        wrapper.append(track_list)
+        wrapper.append(self._track_list)
+
+        if self._player_bar:
+            self._player_bar.set_track_change_cb(self._on_current_track_changed)
+
+    def _on_track_activated(self, listbox, row):
+        if not self._player_bar:
+            return
+        idx = row.get_index()
+        if idx < 0 or idx >= len(self._tracks):
+            return
+        self._clear_track_highlight()
+        self._play_track(idx)
+
+    def _play_track(self, idx):
+        t = self._tracks[idx]
+        file_path = t.get("file_path")
+        if not file_path or not os.path.exists(file_path):
+            return
+        tracks_tuple = [
+            (t2.get("file_path", ""), t2.get("title", "?"), t2.get("artist", ""))
+            for t2 in self._tracks
+        ]
+        self._player_bar.play_file(
+            file_path,
+            title=t.get("title", "?"),
+            artist=t.get("artist", ""),
+            track_idx=idx,
+            tracks=tracks_tuple,
+            cover_path=self._cover_path,
+        )
+
+    def _on_current_track_changed(self, idx):
+        self._track_list.unselect_all()
+        if 0 <= idx < len(self._tracks):
+            row = self._track_list.get_row_at_index(idx)
+            if row:
+                self._track_list.select_row(row)
+
+    def _clear_track_highlight(self):
+        self._track_list.unselect_all()
 
     def _on_set_cover_clicked(self, btn):
         parent = self.get_root() if self.get_root() else None

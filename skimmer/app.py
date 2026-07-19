@@ -4,7 +4,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gtk, GLib, Adw
+from gi.repository import Gtk, GLib, Adw, Gdk
 
 from skimmer.config import load_config, save_config
 from skimmer.worker import ProcessingManager
@@ -12,6 +12,8 @@ from skimmer.library import LibraryPage
 from skimmer.search import SearchPage
 from skimmer.processing import ProcessingPage
 from skimmer.settings import SettingsPage
+from skimmer.player import PlayerBar
+from skimmer.media_integration import create_integration
 
 
 class SkimmerApp(Adw.Application):
@@ -31,10 +33,20 @@ class SkimmerApp(Adw.Application):
         win.set_default_size(1100, 700)
         win.set_title("Y1 Skimmer")
 
+        key_ctrl = Gtk.EventControllerKey()
+        key_ctrl.connect("key-pressed", self._on_global_key)
+        win.add_controller(key_ctrl)
+
         toolbar_view = Adw.ToolbarView()
         win.set_content(toolbar_view)
 
         header = Adw.HeaderBar()
+
+        self.player_bar = PlayerBar(self.config)
+        toolbar_view.add_bottom_bar(self.player_bar)
+
+        self.media_integration = create_integration(self.player_bar)
+        self.media_integration.start()
 
         self.stack = Gtk.Stack()
         self.stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
@@ -42,11 +54,11 @@ class SkimmerApp(Adw.Application):
 
         self.pages = {}
 
-        page = LibraryPage(self.config)
+        page = LibraryPage(self.config, player_bar=self.player_bar)
         self.stack.add_titled(page, "library", "Library")
         self.pages["library"] = page
 
-        page = SearchPage(self.config, self.proc_mgr)
+        page = SearchPage(self.config, self.proc_mgr, player_bar=self.player_bar)
         self.stack.add_titled(page, "search", "Search")
         self.pages["search"] = page
 
@@ -61,6 +73,10 @@ class SkimmerApp(Adw.Application):
         page = SettingsPage(self.config, self._on_save_settings)
         self.stack.add_titled(page, "settings", "Settings")
         self.pages["settings"] = page
+
+        self.player_bar.set_show_album_cb(
+            lambda: self.stack.set_visible_child_name("library")
+        )
 
         switcher = Gtk.StackSwitcher()
         switcher.set_stack(self.stack)
@@ -177,3 +193,12 @@ class SkimmerApp(Adw.Application):
         self.proc_mgr.config = config
         self.pages["library"].config = config
         self.pages["search"].config = config
+
+    def _on_global_key(self, ctrl, keyval, keycode, state):
+        if keyval in (Gdk.KEY_space, Gdk.KEY_KP_Space):
+            focus = ctrl.get_widget().get_focus()
+            if focus is not None and isinstance(focus, (Gtk.Entry, Gtk.SearchEntry, Gtk.ComboBoxText)):
+                return False
+            self.player_bar._on_play_pause(None)
+            return True
+        return False

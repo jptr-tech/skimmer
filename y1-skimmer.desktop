@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Y1 Skimmer
+Comment=Music player
+Exec=y1-skimmer
+Type=Application
+Icon=audio-x-generic
+Categories=Audio;Music;
+Terminal=false
+MimeType=audio/flac;audio/mpeg;audio/ogg;audio/wav;audio/aac;audio/mp4;

@@ -5,10 +5,10 @@ import threading
 
 import gi
 
-gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
+gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
-from gi.repository import Gtk, GLib, Gdk, Adw
+from gi.repository import Adw, Gtk, GLib, Gdk
 
 from beets.library import Library
 
@@ -16,9 +16,10 @@ from skimmer.widgets import AlbumCover, AlbumDetail, find_cover, COVER_SIZE
 
 
 class LibraryPage(Gtk.Box):
-    def __init__(self, config):
+    def __init__(self, config, player_bar=None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.config = config
+        self._player_bar = player_bar
         self.set_margin_start(12)
         self.set_margin_end(12)
         self.set_margin_top(12)
@@ -227,6 +228,7 @@ class LibraryPage(Gtk.Box):
                         "track": str(item.track or ""),
                         "title": item.title or "?",
                         "artist": item.artist or cover.artist,
+                        "file_path": os.fsdecode(item.path) if item.path else None,
                     }
                 )
         except Exception:
@@ -246,6 +248,7 @@ class LibraryPage(Gtk.Box):
             on_back=lambda: self.stack.set_visible_child_name("grid"),
             album_path=album_path,
             on_set_cover=lambda _path: self._refresh_covers(),
+            player_bar=self._player_bar,
         )
         detail.set_vexpand(True)
         name = f"detail-{cover.artist}-{cover.album}"

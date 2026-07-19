@@ -2,9 +2,9 @@ import threading
 
 import gi
 
-gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gtk, GLib, Adw
+gi.require_version("Gtk", "4.0")
+from gi.repository import Adw, Gtk, GLib
 
 from ytmusicapi import YTMusic
 
@@ -12,10 +12,11 @@ from skimmer.widgets import AlbumCover, AlbumDetail, find_cover
 
 
 class SearchPage(Gtk.Box):
-    def __init__(self, config, processing_manager):
+    def __init__(self, config, processing_manager, player_bar=None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.config = config
         self.proc_mgr = processing_manager
+        self._player_bar = player_bar
         self.set_margin_start(12)
         self.set_margin_end(12)
         self.set_margin_top(12)
@@ -207,6 +208,7 @@ class SearchPage(Gtk.Box):
             cover_url=result.get("cover_url"),
             on_back=lambda: self.stack.set_visible_child_name("results"),
             on_download=lambda btn: self._do_download(full_album, btn),
+            player_bar=self._player_bar,
         )
         detail.set_vexpand(True)
         self.stack.add_named(detail, detail_name)

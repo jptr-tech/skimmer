@@ -8,6 +8,7 @@ dependencies = [
     "ytmusicapi>=1.0.0",
     "yt-dlp>=2023.0.0",
     "beets>=2.0.0",
+    "mpris-server>=0.8.1",
 ]
 
 [project.scripts]

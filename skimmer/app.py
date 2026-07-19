@@ -1,4 +1,6 @@
 import os
+import subprocess
+import threading
 
 import gi
 
@@ -104,6 +106,13 @@ class SkimmerApp(Adw.Application):
         self.sync_btn.connect("clicked", self._do_sync)
         sync_box.append(self.sync_btn)
 
+        self.eject_btn = Gtk.Button(icon_name="media-eject-symbolic")
+        self.eject_btn.add_css_class("flat")
+        self.eject_btn.set_tooltip_text("Safely eject Y1")
+        self.eject_btn.set_visible(False)
+        self.eject_btn.connect("clicked", self._do_eject)
+        sync_box.append(self.eject_btn)
+
         header.pack_end(sync_box)
 
         toolbar_view.add_top_bar(header)
@@ -121,6 +130,7 @@ class SkimmerApp(Adw.Application):
         if connected:
             self.sync_icon.set_from_icon_name("drive-harddisk-usb-symbolic")
             self.sync_btn.set_visible(True)
+            self.eject_btn.set_visible(True)
             if self._sync_task is None:
                 self.sync_label.set_text("Y1 connected")
                 if not self._last_connected:
@@ -131,6 +141,7 @@ class SkimmerApp(Adw.Application):
             self.sync_icon.set_from_icon_name("drive-harddisk-usb-symbolic")
             self.sync_label.set_text("")
             self.sync_btn.set_visible(False)
+            self.eject_btn.set_visible(False)
             self.sync_spinner.set_visible(False)
             if self._auto_sync_timer is not None:
                 GLib.source_remove(self._auto_sync_timer)
@@ -144,6 +155,7 @@ class SkimmerApp(Adw.Application):
             return
         self._auto_sync_timer = None
         self.sync_btn.set_sensitive(False)
+        self.eject_btn.set_sensitive(False)
         self.sync_label.set_text("Syncing...")
         self.sync_spinner.set_visible(True)
         self.sync_spinner.start()
@@ -164,12 +176,54 @@ class SkimmerApp(Adw.Application):
             self.sync_spinner.stop()
             self.sync_spinner.set_visible(False)
             self.sync_btn.set_sensitive(True)
+            self.eject_btn.set_sensitive(True)
             self._sync_task = None
 
     def _reset_sync_ui(self):
         self.sync_label.set_text("Y1 connected")
         self.sync_btn.set_sensitive(True)
+        self.eject_btn.set_sensitive(True)
         return GLib.SOURCE_REMOVE
+
+    def _do_eject(self, *args):
+        self.eject_btn.set_sensitive(False)
+        self.sync_btn.set_sensitive(False)
+        self.sync_label.set_text("Ejecting...")
+        threading.Thread(target=self._eject_thread, daemon=True).start()
+
+    def _eject_thread(self):
+        mount_path = self.config["y1_mount_path"]
+        try:
+            result = subprocess.run(
+                ["findmnt", "-n", "-o", "SOURCE", mount_path],
+                capture_output=True, text=True, timeout=10,
+            )
+            device = result.stdout.strip()
+            if not device:
+                raise RuntimeError("Could not find device for mount point")
+            subprocess.run(
+                ["udisksctl", "unmount", "-b", device],
+                capture_output=True, text=True, timeout=30,
+                check=True,
+            )
+            subprocess.run(
+                ["udisksctl", "power-off", "-b", device],
+                capture_output=True, text=True, timeout=30,
+                check=False,
+            )
+            GLib.idle_add(self._on_eject_done, None)
+        except Exception as e:
+            GLib.idle_add(self._on_eject_done, str(e))
+
+    def _on_eject_done(self, error):
+        if error:
+            self.sync_label.set_text(f"Eject failed: {error}")
+            self.eject_btn.set_sensitive(True)
+            self.sync_btn.set_sensitive(True)
+        else:
+            self.sync_label.set_text("Ejected safely")
+            self.eject_btn.set_visible(False)
+            self.sync_btn.set_visible(False)
 
     def _on_proc_added(self, mgr, task):
         task.connect("updated", self._on_proc_change)

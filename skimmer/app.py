@@ -232,7 +232,7 @@ class SkimmerApp(Adw.Application):
     def _on_proc_change(self, *args):
         self._update_proc_badge()
         if isinstance(args[0], Task) and args[1] == "completed" and args[0].type == "import":
-            self.pages["library"]._refresh()
+            GLib.idle_add(self.pages["library"]._refresh)
 
     def _update_proc_badge(self):
         active = sum(

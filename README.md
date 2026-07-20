@@ -4,7 +4,7 @@
   <img src="assets/skimmer.svg" style="width: 250px;">
 </p>
 
-![screenshot](assets/screenshot.jpg)
+![screenshot](assets/screenshot.png)
 
 GTK4 music manager built for the Innioasis Y1 (though it works with any USB
 media device/Rockbox device)

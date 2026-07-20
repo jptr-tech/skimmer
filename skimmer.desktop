@@ -1,9 +1,9 @@
 [Desktop Entry]
-Name=Y1 Skimmer
+Name=Skimmer
 Comment=Music player
-Exec=y1-skimmer
+Exec=skimmer
 Type=Application
-Icon=audio-x-generic
+Icon=tech.jptr.Skimmer
 Categories=Audio;Music;
 Terminal=false
 MimeType=audio/flac;audio/mpeg;audio/ogg;audio/wav;audio/aac;audio/mp4;

@@ -209,7 +209,7 @@ class CoverSearchDialog(Gtk.Window):
         self.cover_pic = cover_pic
         self._on_set_cover = on_set_cover
 
-        print(f"[y1-skimmer] Opening cover search dialog for {artist} - {album}")
+        print(f"[skimmer] Opening cover search dialog for {artist} - {album}")
 
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         vbox.set_margin_start(12)
@@ -255,7 +255,7 @@ class CoverSearchDialog(Gtk.Window):
             return
         self.flowbox.remove_all()
         self.status_lbl.set_text("Searching iTunes + Deezer...")
-        print(f"[y1-skimmer] Cover search: '{term}'")
+        print(f"[skimmer] Cover search: '{term}'")
         threading.Thread(target=self._search_thread, args=(term,), daemon=True).start()
 
     def _search_thread(self, term):
@@ -274,7 +274,7 @@ class CoverSearchDialog(Gtk.Window):
                 if full and key not in combined:
                     combined[key] = (r.get("collectionName", "?"), r.get("artistName", "?"), thumb, full, "iTunes")
         except Exception as e:
-            print(f"[y1-skimmer] iTunes search error: {e}")
+            print(f"[skimmer] iTunes search error: {e}")
 
         # Deezer
         try:
@@ -288,25 +288,25 @@ class CoverSearchDialog(Gtk.Window):
                 if full and key not in combined:
                     combined[key] = (r.get("title", "?"), r.get("artist", {}).get("name", "?"), thumb, full, "Deezer")
         except Exception as e:
-            print(f"[y1-skimmer] Deezer search error: {e}")
+            print(f"[skimmer] Deezer search error: {e}")
 
         GLib.idle_add(self._show_results, list(combined.values()))
 
     def _show_error(self, msg):
-        print(f"[y1-skimmer] Cover search error displayed: {msg}")
+        print(f"[skimmer] Cover search error displayed: {msg}")
         self.status_lbl.set_text(msg)
 
     def _show_results(self, results):
         if not results:
             self.status_lbl.set_text("No results found")
-            print("[y1-skimmer] Cover search: 0 results")
+            print("[skimmer] Cover search: 0 results")
             return
         source_counts = {}
         for _, _, _, _, src in results:
             source_counts[src] = source_counts.get(src, 0) + 1
         summary = ", ".join(f"{src}: {n}" for src, n in source_counts.items())
         self.status_lbl.set_text(f"{len(results)} results ({summary})")
-        print(f"[y1-skimmer] Cover search: {len(results)} results ({summary})")
+        print(f"[skimmer] Cover search: {len(results)} results ({summary})")
         for title, artist, thumb_url, full_url, source in results:
             label = f"[{source}] {title}"
             result_widget = CoverSearchResult(
@@ -317,17 +317,17 @@ class CoverSearchDialog(Gtk.Window):
 
     def _on_result_selected(self, result):
         url = result.get_full_url()
-        print(f"[y1-skimmer] Cover selected: {url}")
+        print(f"[skimmer] Cover selected: {url}")
         self.status_lbl.set_text("Downloading cover...")
         threading.Thread(target=self._download_thread, args=(url,), daemon=True).start()
 
     def _download_thread(self, url):
-        print(f"[y1-skimmer] Downloading cover from {url}")
+        print(f"[skimmer] Downloading cover from {url}")
         try:
             data = urllib.request.urlopen(url, timeout=15).read()
-            print(f"[y1-skimmer] Downloaded {len(data)} bytes")
+            print(f"[skimmer] Downloaded {len(data)} bytes")
         except Exception as e:
-            print(f"[y1-skimmer] Download failed: {e}")
+            print(f"[skimmer] Download failed: {e}")
             GLib.idle_add(self.status_lbl.set_text, f"Download failed: {e}")
             return
 
@@ -343,7 +343,7 @@ class CoverSearchDialog(Gtk.Window):
                 loader.close()
                 loader.get_pixbuf()
             except Exception:
-                print(f"[y1-skimmer] Invalid image data")
+                print(f"[skimmer] Invalid image data")
                 GLib.idle_add(self.status_lbl.set_text, "Invalid image data")
                 return
 
@@ -576,7 +576,7 @@ class AlbumDetail(Gtk.Box):
                     if self._on_set_cover:
                         self._on_set_cover(dst)
                 except Exception as e:
-                    print(f"[y1-skimmer] Failed to set cover: {e}")
+                    print(f"[skimmer] Failed to set cover: {e}")
             return
         dialog.destroy()
 

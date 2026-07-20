@@ -1,5 +1,5 @@
 [project]
-name = "y1-skimmer"
+name = "skimmer"
 version = "0.1.0"
 description = "GTK4 music manager for the Innioasis Y1"
 requires-python = ">=3.11"
@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-y1-skimmer = "skimmer.__main__:main"
+skimmer = "skimmer.__main__:main"
 
 [project.optional-dependencies]
 dev = [

@@ -19,7 +19,7 @@ from skimmer.media_integration import create_integration
 
 class SkimmerApp(Adw.Application):
     def __init__(self):
-        super().__init__(application_id="com.y1.skimmer")
+        super().__init__(application_id="tech.jptr.Skimmer")
         self.config = load_config()
         style_mgr = Adw.StyleManager.get_default()
         style_mgr.set_color_scheme(Adw.ColorScheme.PREFER_DARK)
@@ -32,7 +32,7 @@ class SkimmerApp(Adw.Application):
     def _on_activate(self, app):
         win = Adw.ApplicationWindow(application=app)
         win.set_default_size(1100, 700)
-        win.set_title("Y1 Skimmer")
+        win.set_title("Skimmer")
 
         key_ctrl = Gtk.EventControllerKey()
         key_ctrl.connect("key-pressed", self._on_global_key)
@@ -107,7 +107,7 @@ class SkimmerApp(Adw.Application):
 
         self.eject_btn = Gtk.Button(icon_name="media-eject-symbolic")
         self.eject_btn.add_css_class("flat")
-        self.eject_btn.set_tooltip_text("Safely eject Y1")
+        self.eject_btn.set_tooltip_text("Safely eject device")
         self.eject_btn.set_visible(False)
         self.eject_btn.connect("clicked", self._do_eject)
         sync_box.append(self.eject_btn)
@@ -120,15 +120,15 @@ class SkimmerApp(Adw.Application):
         monitor = Gio.VolumeMonitor.get()
         monitor.connect("mount-added", self._on_mount_changed)
         monitor.connect("mount-removed", self._on_mount_changed)
-        self._check_y1()
+        self._check_mount()
 
         win.present()
 
     def _on_mount_changed(self, *args):
-        self._check_y1()
+        self._check_mount()
 
-    def _check_y1(self):
-        mount_path = self.config["y1_mount_path"]
+    def _check_mount(self):
+        mount_path = self.config["mount_path"]
         connected = any(
             mount.get_root().get_path() == mount_path
             for mount in Gio.VolumeMonitor.get().get_mounts()
@@ -139,7 +139,7 @@ class SkimmerApp(Adw.Application):
             self.sync_btn.set_visible(True)
             self.eject_btn.set_visible(True)
             if self._sync_task is None:
-                self.sync_label.set_text("Y1 connected")
+                self.sync_label.set_text("Device connected")
                 if not self._last_connected:
                     if self._auto_sync_timer is not None:
                         GLib.source_remove(self._auto_sync_timer)
@@ -165,7 +165,7 @@ class SkimmerApp(Adw.Application):
         self.sync_label.set_text("Syncing...")
         self.sync_spinner.set_visible(True)
         self.sync_spinner.start()
-        self._sync_task = self.proc_mgr.add_task("sync", "Sync music to Y1", {})
+        self._sync_task = self.proc_mgr.add_task("sync", "Sync music to device", {})
         self._sync_task.connect("updated", self._on_sync_updated)
 
     def _on_sync_updated(self, task, status, progress, message):
@@ -186,7 +186,7 @@ class SkimmerApp(Adw.Application):
             self._sync_task = None
 
     def _reset_sync_ui(self):
-        self.sync_label.set_text("Y1 connected")
+        self.sync_label.set_text("Device connected")
         self.sync_btn.set_sensitive(True)
         self.eject_btn.set_sensitive(True)
         return GLib.SOURCE_REMOVE
@@ -198,7 +198,7 @@ class SkimmerApp(Adw.Application):
         threading.Thread(target=self._eject_thread, daemon=True).start()
 
     def _eject_thread(self):
-        mount_path = self.config["y1_mount_path"]
+        mount_path = self.config["mount_path"]
         try:
             for mount in Gio.VolumeMonitor.get().get_mounts():
                 if mount.get_root().get_path() == mount_path:

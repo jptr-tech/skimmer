@@ -5,14 +5,14 @@ from pathlib import Path
 
 import platformdirs
 
-CONFIG_DIR = Path(platformdirs.user_config_dir("y1-skimmer", ensure_exists=True))
+CONFIG_DIR = Path(platformdirs.user_config_dir("skimmer", ensure_exists=True))
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
 DEFAULT_CONFIG = {
     "music_dir": str(Path.home() / "Music"),
     "beets_lib": str(Path.home() / "Music" / ".musiclibrary.db"),
-    "temp_dir": os.path.join(tempfile.gettempdir(), "y1-skimmer"),
-    "y1_mount_path": "",
+    "temp_dir": os.path.join(tempfile.gettempdir(), "skimmer"),
+    "mount_path": "",
     "ytdlp_format": "bestaudio/best",
     "ytdlp_audio_format": "mp3",
     "max_concurrent_downloads": 2,

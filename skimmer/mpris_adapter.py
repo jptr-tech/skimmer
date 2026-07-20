@@ -28,7 +28,7 @@ MIME_TYPES = [
 ]
 
 
-class Y1Adapter(MprisAdapter):
+class SkimmerAdapter(MprisAdapter):
     def __init__(self, player_bar):
         self._player = player_bar
 
@@ -42,7 +42,7 @@ class Y1Adapter(MprisAdapter):
             return meta
         path, title, artist = q[idx]
         meta = Metadata()
-        meta[MetadataEntries.TRACK_ID] = "/org/mpris/MediaPlayer2/y1skimmer/track/0"
+        meta[MetadataEntries.TRACK_ID] = "/org/mpris/MediaPlayer2/skimmer/track/0"
         meta[MetadataEntries.TITLE] = title or ""
         meta[MetadataEntries.ARTISTS] = [artist] if artist else []
         meta[MetadataEntries.URL] = f"file://{path}"
@@ -108,7 +108,7 @@ class Y1Adapter(MprisAdapter):
         return MIME_TYPES
 
     def get_desktop_entry(self):
-        return "y1-skimmer"
+        return "skimmer"
 
     def get_rate(self):
         return Decimal("1.0")
@@ -160,7 +160,7 @@ class Y1Adapter(MprisAdapter):
         pass
 
 
-class Y1EventAdapter(EventAdapter):
+class SkimmerEventAdapter(EventAdapter):
     def on_playpause(self):
         self.emit_player_changes(["PlaybackStatus", "Metadata"])
 
@@ -175,9 +175,9 @@ class Y1EventAdapter(EventAdapter):
 class LinuxMPRIS(MediaIntegration):
     def __init__(self, player_bar):
         super().__init__(player_bar)
-        self._adapter = Y1Adapter(player_bar)
-        self._server = Server("Y1 Skimmer", adapter=self._adapter)
-        self._events = Y1EventAdapter(
+        self._adapter = SkimmerAdapter(player_bar)
+        self._server = Server("Skimmer", adapter=self._adapter)
+        self._events = SkimmerEventAdapter(
             root=self._server.root,
             player=self._server.player,
         )

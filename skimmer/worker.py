@@ -50,7 +50,7 @@ class ProcessingManager(GObject.Object):
         with self._lock:
             self.tasks.append(task)
         self._queue.put(task)
-        print(f"[y1-skimmer] Queued task [{task.id}] {task_type}: {title}")
+        print(f"[skimmer] Queued task [{task.id}] {task_type}: {title}")
         GLib.idle_add(self.emit, "task-added", task)
         return task
 
@@ -63,7 +63,7 @@ class ProcessingManager(GObject.Object):
     def _run(self):
         while True:
             task = self._queue.get()
-            print(f"[y1-skimmer] Starting task [{task.id}] {task.type}: {task.title}")
+            print(f"[skimmer] Starting task [{task.id}] {task.type}: {task.title}")
             task.status = "running"
             task.emit("updated", task.status, task.progress, "")
             try:
@@ -76,12 +76,12 @@ class ProcessingManager(GObject.Object):
                 task.status = "completed"
                 task.progress = 1.0
                 task.emit("updated", task.status, task.progress, "")
-                print(f"[y1-skimmer] Task [{task.id}] completed: {task.title}")
+                print(f"[skimmer] Task [{task.id}] completed: {task.title}")
             except Exception as e:
                 task.status = "failed"
                 task.error = str(e)
                 task.emit("updated", task.status, task.progress, str(e))
-                print(f"[y1-skimmer] Task [{task.id}] FAILED: {task.title} — {e}")
+                print(f"[skimmer] Task [{task.id}] FAILED: {task.title} — {e}")
 
     def _do_download(self, task):
         album = task.data
@@ -99,10 +99,10 @@ class ProcessingManager(GObject.Object):
             vid = track.get("videoId")
             if vid:
                 vid_to_idx[vid] = i
-        print(f"[y1-skimmer] Downloading {album['artist']} - {album['title']} ({total} tracks) to {album_dir}")
+        print(f"[skimmer] Downloading {album['artist']} - {album['title']} ({total} tracks) to {album_dir}")
 
         for i, track in enumerate(album["tracks"]):
-            print(f"[y1-skimmer]   Track {i+1}/{total}: {track.get('title', '?')} (videoId: {track.get('videoId', 'none')})")
+            print(f"[skimmer]   Track {i+1}/{total}: {track.get('title', '?')} (videoId: {track.get('videoId', 'none')})")
         ydl_opts = {
             "format": self.config["ytdlp_format"],
             "outtmpl": os.path.join(album_dir, "%(title)s.%(ext)s"),
@@ -126,13 +126,13 @@ class ProcessingManager(GObject.Object):
             if vid:
                 urls.append(f"https://music.youtube.com/watch?v={vid}")
             else:
-                print(f"[y1-skimmer]   WARNING: No videoId for track: {track.get('title', '?')}")
+                print(f"[skimmer]   WARNING: No videoId for track: {track.get('title', '?')}")
 
-        print(f"[y1-skimmer] Starting yt-dlp with {len(urls)} URLs, format={self.config['ytdlp_format']}")
+        print(f"[skimmer] Starting yt-dlp with {len(urls)} URLs, format={self.config['ytdlp_format']}")
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download(urls)
-        print(f"[y1-skimmer] Download complete: {album['artist']} - {album['title']}")
-        print(f"[y1-skimmer] Files saved to: {album_dir}")
+        print(f"[skimmer] Download complete: {album['artist']} - {album['title']}")
+        print(f"[skimmer] Files saved to: {album_dir}")
 
     def _ytdlp_hook(self, d, task, total, vid_to_idx):
         if d["status"] == "downloading":
@@ -172,9 +172,9 @@ class ProcessingManager(GObject.Object):
         files = os.listdir(album_dir)
         music_dir = self.config.get("music_dir", "~")
         beets_db = self.config.get("beets_lib", "~")
-        print(f"[y1-skimmer] Importing {len(files)} files from {album_dir}")
-        print(f"[y1-skimmer]   music_dir = {music_dir}")
-        print(f"[y1-skimmer]   beets_lib = {beets_db}")
+        print(f"[skimmer] Importing {len(files)} files from {album_dir}")
+        print(f"[skimmer]   music_dir = {music_dir}")
+        print(f"[skimmer]   beets_lib = {beets_db}")
         task.emit("updated", task.status, 0.0, "Tagging files...")
 
         artist = task.data.get("artist", "")
@@ -213,10 +213,10 @@ class ProcessingManager(GObject.Object):
                     audio.save()
                     tagged += 1
                 except Exception as e:
-                    print(f"[y1-skimmer]   Warning: could not tag {fname}: {e}")
-            print(f"[y1-skimmer] Tagged {tagged}/{len(files)} files with artist={artist}, album={album_title}")
+                    print(f"[skimmer]   Warning: could not tag {fname}: {e}")
+            print(f"[skimmer] Tagged {tagged}/{len(files)} files with artist={artist}, album={album_title}")
 
-        print(f"[y1-skimmer] Copying files to music library...")
+        print(f"[skimmer] Copying files to music library...")
         task.emit("updated", task.status, 0.0, "Copying to music library...")
 
         album_dst = os.path.join(music_dir, artist, album_title) if artist and album_title else album_dir
@@ -232,10 +232,10 @@ class ProcessingManager(GObject.Object):
             dst = os.path.join(album_dst, fname)
             shutil.copy2(src, dst)
             copied.append(dst)
-        print(f"[y1-skimmer] Copied {len(copied)} audio files to {album_dst}")
+        print(f"[skimmer] Copied {len(copied)} audio files to {album_dst}")
 
         try:
-            print(f"[y1-skimmer] Opening beets library at {beets_db}")
+            print(f"[skimmer] Opening beets library at {beets_db}")
             beets_context.set_music_dir(bytestring_path(music_dir))
             lib = Library(beets_db, directory=music_dir)
 
@@ -244,61 +244,61 @@ class ProcessingManager(GObject.Object):
                 item = Item.from_path(fpath)
                 item.add(lib)
                 items.append(item)
-            print(f"[y1-skimmer] Added {len(items)} items to beets library")
+            print(f"[skimmer] Added {len(items)} items to beets library")
 
             if items:
                 album = lib.add_album(items)
-                print(f"[y1-skimmer] Created album '{album.album}' (id={album.id})")
+                print(f"[skimmer] Created album '{album.album}' (id={album.id})")
                 try:
                     from beetsplug.fetchart import FetchArtPlugin
                     fa = FetchArtPlugin()
                     fa.batch_fetch_art(lib, [album], force=False, quiet=True)
                 except Exception as fe:
-                    print(f"[y1-skimmer] fetchart for new album failed: {fe}")
+                    print(f"[skimmer] fetchart for new album failed: {fe}")
 
             task.progress = 1.0
-            print(f"[y1-skimmer] Import complete")
+            print(f"[skimmer] Import complete")
 
             beets_query = f"album:{album_title} artist:{artist}"
             found = list(lib.items(beets_query))
             if found:
-                print(f"[y1-skimmer] Verified: {len(found)} tracks in library for {artist} - {album_title}")
+                print(f"[skimmer] Verified: {len(found)} tracks in library for {artist} - {album_title}")
             else:
-                print(f"[y1-skimmer] WARNING: verification found no tracks for {artist} - {album_title}")
+                print(f"[skimmer] WARNING: verification found no tracks for {artist} - {album_title}")
         except Exception as e:
-            print(f"[y1-skimmer] Beets import error: {e}")
+            print(f"[skimmer] Beets import error: {e}")
             raise
         finally:
             shutil.rmtree(album_dir, ignore_errors=True)
-            print(f"[y1-skimmer] Cleaned up temp dir")
+            print(f"[skimmer] Cleaned up temp dir")
 
     def _do_sync(self, task):
         src = self.config["music_dir"]
-        dst = os.path.join(self.config["y1_mount_path"], "Music")
+        dst = os.path.join(self.config["mount_path"], "Music")
         if not os.path.isdir(src):
             raise FileNotFoundError(f"Source directory not found: {src}")
         os.makedirs(dst, exist_ok=True)
 
-        cache_path = os.path.join(self.config["y1_mount_path"], ".y1-skimmer-cache.json")
+        cache_path = os.path.join(self.config["mount_path"], ".skimmer-cache.json")
 
-        print(f"[y1-skimmer] Sync: {src} -> {dst}")
+        print(f"[skimmer] Sync: {src} -> {dst}")
 
         cached = synccache.load_cache(cache_path, src)
         if cached is not None:
-            print(f"[y1-skimmer] Sync: loaded cache from {cache_path} ({len(cached)} files)")
+            print(f"[skimmer] Sync: loaded cache from {cache_path} ({len(cached)} files)")
         else:
-            print(f"[y1-skimmer] Sync: no cache found at {cache_path}")
+            print(f"[skimmer] Sync: no cache found at {cache_path}")
 
         GLib.idle_add(task.emit, "updated", task.status, 0.0, "Indexing files...")
 
         if cached is not None:
             added, modified, deleted = synccache.get_changes(src, cached)
-            print(f"[y1-skimmer] Sync: diff from cache — +{len(added)} ~{len(modified)} -{len(deleted)}")
+            print(f"[skimmer] Sync: diff from cache — +{len(added)} ~{len(modified)} -{len(deleted)}")
             if modified:
                 for p in sorted(modified)[:5]:
-                    print(f"[y1-skimmer] Sync:   modified: {p}")
+                    print(f"[skimmer] Sync:   modified: {p}")
             if not added and not modified and not deleted:
-                print("[y1-skimmer] Sync: no changes, skipping copy")
+                print("[skimmer] Sync: no changes, skipping copy")
                 GLib.idle_add(task.emit, "updated", task.status, 1.0, "Already up to date")
                 task.progress = 1.0
                 return
@@ -316,21 +316,21 @@ class ProcessingManager(GObject.Object):
             to_transfer = sorted(added) + sorted(modified)
             if not to_transfer:
                 for p in sorted(deleted)[:10]:
-                    print(f"[y1-skimmer] Sync:   deleted: {p}")
-                print("[y1-skimmer] Sync: only deletions, skipping copy")
+                    print(f"[skimmer] Sync:   deleted: {p}")
+                print("[skimmer] Sync: only deletions, skipping copy")
                 GLib.idle_add(task.emit, "updated", task.status, 0.95, "Saving cache...")
                 synccache.update_cache(cache_path, src)
-                print(f"[y1-skimmer] Sync: cache saved to {cache_path}")
+                print(f"[skimmer] Sync: cache saved to {cache_path}")
                 task.progress = 1.0
                 GLib.idle_add(task.emit, "updated", task.status, 1.0, "Sync complete")
-                print("[y1-skimmer] Sync complete (deletions only)")
+                print("[skimmer] Sync complete (deletions only)")
                 return
         else:
             to_transfer = sorted(os.listdir(src))
-            print(f"[y1-skimmer] Sync: first sync — {len(to_transfer)} top-level items")
+            print(f"[skimmer] Sync: first sync — {len(to_transfer)} top-level items")
 
         total = len(to_transfer)
-        print(f"[y1-skimmer] Sync: copying {total} files")
+        print(f"[skimmer] Sync: copying {total} files")
         GLib.idle_add(task.emit, "updated", task.status, 0.0, f"Copying {total} files...")
 
         completed = 0
@@ -347,7 +347,7 @@ class ProcessingManager(GObject.Object):
                     os.makedirs(os.path.dirname(dst_path), exist_ok=True)
                     shutil.copy2(src_path, dst_path)
             except Exception as e:
-                print(f"[y1-skimmer] Sync:   failed to copy {p}: {e}")
+                print(f"[skimmer] Sync:   failed to copy {p}: {e}")
                 failed.append(p)
             completed += 1
             pct = completed / total
@@ -358,16 +358,16 @@ class ProcessingManager(GObject.Object):
                 GLib.idle_add(task.emit, "updated", task.status, pct,
                               f"Copying... ({completed}/{total})")
             if completed <= 5 or completed % 50 == 0:
-                print(f"[y1-skimmer] Sync:   {completed}/{total}: {p[:120]}")
+                print(f"[skimmer] Sync:   {completed}/{total}: {p[:120]}")
 
         if failed:
-            print(f"[y1-skimmer] Sync: {len(failed)} files failed: {failed[:5]}...")
+            print(f"[skimmer] Sync: {len(failed)} files failed: {failed[:5]}...")
             raise RuntimeError(f"Sync failed: {len(failed)} files could not be copied")
 
-        print(f"[y1-skimmer] Sync: copy finished ({completed} files)")
+        print(f"[skimmer] Sync: copy finished ({completed} files)")
         GLib.idle_add(task.emit, "updated", task.status, 0.95, "Saving cache...")
         synccache.update_cache(cache_path, src)
-        print(f"[y1-skimmer] Sync: cache saved to {cache_path}")
+        print(f"[skimmer] Sync: cache saved to {cache_path}")
         task.progress = 1.0
         GLib.idle_add(task.emit, "updated", task.status, 1.0, "Sync complete")
-        print(f"[y1-skimmer] Sync complete ({completed} files)")
+        print(f"[skimmer] Sync complete ({completed} files)")

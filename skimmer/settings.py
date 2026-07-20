@@ -33,7 +33,7 @@ class SettingsPage(Gtk.Box):
             ("music_dir", "Music Library", True),
             ("beets_lib", "Beets Database", True),
             ("temp_dir", "Temp Download Dir", True),
-            ("y1_mount_path", "Y1 Mount Path", True),
+            ("mount_path", "Mount Path", True),
         ]:
             lbl_w = Gtk.Label(label=label_text, halign=Gtk.Align.START)
             grid.attach(lbl_w, 0, row, 1, 1)

@@ -1,9 +1,9 @@
 ---
-app-id: com.y1.skimmer
+app-id: tech.jptr.Skimmer
 runtime: org.gnome.Platform
 runtime-version: "48"
 sdk: org.gnome.Sdk
-command: y1-skimmer
+command: skimmer
 
 finish-args:
   - --share=network
@@ -22,13 +22,13 @@ modules:
     build-commands:
       - /usr/lib/sdk/ffmpeg/install.sh
 
-  - name: y1-skimmer
+  - name: skimmer
     buildsystem: simple
     build-commands:
       - pip3 install --prefix=/app --no-build-isolation --no-deps .
-      - install -Dm644 build-aux/data/com.y1.skimmer.desktop /app/share/applications/com.y1.skimmer.desktop
-      - install -Dm644 build-aux/data/icons/com.y1.skimmer.png /app/share/icons/hicolor/256x256/apps/com.y1.skimmer.png
-      - install -Dm644 build-aux/data/com.y1.skimmer.metainfo.xml /app/share/metainfo/com.y1.skimmer.metainfo.xml
+      - install -Dm644 build-aux/data/tech.jptr.Skimmer.desktop /app/share/applications/tech.jptr.Skimmer.desktop
+      - install -Dm644 build-aux/data/icons/tech.jptr.Skimmer.png /app/share/icons/hicolor/256x256/apps/tech.jptr.Skimmer.png
+      - install -Dm644 build-aux/data/tech.jptr.Skimmer.metainfo.xml /app/share/metainfo/tech.jptr.Skimmer.metainfo.xml
     sources:
       - type: dir
         path: ../..

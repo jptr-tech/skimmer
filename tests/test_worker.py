@@ -9,11 +9,11 @@ from skimmer.worker import Task, ProcessingManager
 
 
 SAMPLE_CONFIG = {
-    "temp_dir": "/tmp/y1-skimmer",
+    "temp_dir": "/tmp/skimmer",
     "music_dir": "/tmp/music",
     "ytdlp_format": "bestaudio/best",
     "ytdlp_audio_format": "mp3",
-    "y1_mount_path": "/tmp/y1",
+    "mount_path": "/tmp/mount",
     "beets_lib": "",
 }
 

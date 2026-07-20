@@ -6,3 +6,4 @@ uv.lock
 AGENTS.md
 y1_skimmer.egg-info/
 skimmer.egg-info/
+build-dir/

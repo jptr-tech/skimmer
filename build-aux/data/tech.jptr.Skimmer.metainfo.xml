@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>tech.jptr.Skimmer</id>
+  <name>Skimmer</name>
+  <summary>Music Manager</summary>
+  <developer id="tech.jptr">
+    <name>jptr</name>
+  </developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <description>
+    <p>GTK4 music manager for Rockbox devices</p>
+  </description>
+  <url type="homepage">https://github.com/jptr-tech/skimmer</url>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2025-01-01"/>
+  </releases>
+  <launchable type="desktop-id">tech.jptr.Skimmer.desktop</launchable>
+</component>

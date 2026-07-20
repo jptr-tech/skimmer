@@ -1,7 +1,7 @@
 ---
 app-id: tech.jptr.Skimmer
 runtime: org.gnome.Platform
-runtime-version: "48"
+runtime-version: "50"
 sdk: org.gnome.Sdk
 command: skimmer
 
@@ -17,17 +17,14 @@ finish-args:
   - --filesystem=/run/media
 
 modules:
-  - name: ffmpeg
-    buildsystem: simple
-    build-commands:
-      - /usr/lib/sdk/ffmpeg/install.sh
-
+  - pypi-dependencies.json
   - name: skimmer
     buildsystem: simple
     build-commands:
       - pip3 install --prefix=/app --no-build-isolation --no-deps .
       - install -Dm644 build-aux/data/tech.jptr.Skimmer.desktop /app/share/applications/tech.jptr.Skimmer.desktop
-      - install -Dm644 build-aux/data/icons/tech.jptr.Skimmer.png /app/share/icons/hicolor/256x256/apps/tech.jptr.Skimmer.png
+      - install -Dm644 build-aux/data/icons/512x512/apps/tech.jptr.Skimmer.png /app/share/icons/hicolor/512x512/apps/tech.jptr.Skimmer.png
+      - install -Dm644 build-aux/data/icons/256x256/apps/tech.jptr.Skimmer.png /app/share/icons/hicolor/256x256/apps/tech.jptr.Skimmer.png
       - install -Dm644 build-aux/data/tech.jptr.Skimmer.metainfo.xml /app/share/metainfo/tech.jptr.Skimmer.metainfo.xml
     sources:
       - type: dir

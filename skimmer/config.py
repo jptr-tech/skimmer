@@ -16,6 +16,7 @@ DEFAULT_CONFIG = {
     "ytdlp_format": "bestaudio/best",
     "ytdlp_audio_format": "mp3",
     "max_concurrent_downloads": 2,
+    "scan_interval": 1800,
 }
 
 

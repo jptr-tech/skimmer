@@ -5,10 +5,11 @@ from gi.repository import Adw, Gtk, GLib
 
 
 class SettingsPage(Gtk.Box):
-    def __init__(self, config, on_save):
+    def __init__(self, config, on_save, scanner=None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self.config = config
         self.on_save_cb = on_save
+        self._scanner = scanner
         self.set_margin_start(12)
         self.set_margin_end(12)
         self.set_margin_top(12)
@@ -89,6 +90,50 @@ class SettingsPage(Gtk.Box):
         frame.set_child(grid)
         self.append(frame)
 
+        # Scanner section
+        scan_frame = Gtk.Frame(label="Scanner")
+        scan_grid = Gtk.Grid()
+        scan_grid.set_column_spacing(12)
+        scan_grid.set_row_spacing(6)
+        scan_grid.set_margin_start(12)
+        scan_grid.set_margin_end(12)
+        scan_grid.set_margin_top(12)
+        scan_grid.set_margin_bottom(12)
+
+        srow = 0
+        interval_lbl = Gtk.Label(label="Re-scan interval (minutes)", halign=Gtk.Align.START)
+        scan_grid.attach(interval_lbl, 0, srow, 1, 1)
+
+        self.scan_interval_btn = Gtk.SpinButton(
+            adjustment=Gtk.Adjustment(
+                value=self.config.get("scan_interval", 600) / 60,
+                lower=1, upper=1440, step_increment=1,
+            ),
+            climb_rate=1, digits=0,
+        )
+        self.scan_interval_btn.set_hexpand(True)
+        scan_grid.attach(self.scan_interval_btn, 1, srow, 1, 1)
+        self.entries["scan_interval"] = self.scan_interval_btn
+
+        self.scan_now_btn = Gtk.Button(label="Scan Now")
+        self.scan_now_btn.add_css_class("flat")
+        self.scan_now_btn.connect("clicked", self._on_scan_now)
+        scan_grid.attach(self.scan_now_btn, 2, srow, 1, 1)
+
+        srow += 1
+        self.scan_status_lbl = Gtk.Label(label="Status: Idle")
+        self.scan_status_lbl.set_halign(Gtk.Align.START)
+        scan_grid.attach(self.scan_status_lbl, 0, srow, 3, 1)
+
+        srow += 1
+        self.scan_progress = Gtk.ProgressBar()
+        self.scan_progress.set_fraction(0.0)
+        self.scan_progress.set_visible(False)
+        scan_grid.attach(self.scan_progress, 0, srow, 3, 1)
+
+        scan_frame.set_child(scan_grid)
+        self.append(scan_frame)
+
         btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         btn_box.set_halign(Gtk.Align.END)
 
@@ -98,6 +143,49 @@ class SettingsPage(Gtk.Box):
         btn_box.append(save_btn)
 
         self.append(btn_box)
+
+        if self._scanner:
+            self._scanner.set_callbacks(
+                on_status=self._on_scanner_status,
+                on_progress=self._on_scanner_progress,
+                on_complete=self._on_scanner_complete,
+            )
+
+    def set_scanner(self, scanner):
+        self._scanner = scanner
+        self._scanner.set_callbacks(
+            on_status=self._on_scanner_status,
+            on_progress=self._on_scanner_progress,
+            on_complete=self._on_scanner_complete,
+        )
+
+    def _on_scanner_status(self, msg):
+        GLib.idle_add(self.scan_status_lbl.set_text, f"Status: {msg}")
+
+    def _on_scanner_progress(self, current, total):
+        def update():
+            frac = current / total if total > 0 else 0.0
+            self.scan_progress.set_fraction(frac)
+            self.scan_progress.set_visible(frac < 1.0)
+            self.scan_status_lbl.set_text(f"Scanning... {current}/{total}")
+        GLib.idle_add(update)
+
+    def _on_scanner_complete(self, changed):
+        def update():
+            self.scan_progress.set_fraction(1.0)
+            self.scan_progress.set_visible(False)
+            if changed > 0:
+                self.scan_status_lbl.set_text(f"Status: Idle ({changed} changes)")
+            else:
+                self.scan_status_lbl.set_text("Status: Idle")
+        GLib.idle_add(update)
+
+    def _on_scan_now(self, btn):
+        if self._scanner:
+            self.scan_status_lbl.set_text("Status: Starting scan...")
+            self.scan_now_btn.set_sensitive(False)
+            self._scanner.scan_now()
+            GLib.timeout_add_seconds(2, lambda: self.scan_now_btn.set_sensitive(True) or False)
 
     def _on_browse(self, btn, entry):
         dialog = Gtk.FileChooserDialog(
@@ -121,6 +209,8 @@ class SettingsPage(Gtk.Box):
         for key, widget in self.entries.items():
             if isinstance(widget, Gtk.ComboBoxText):
                 self.config[key] = widget.get_active_text()
+            elif isinstance(widget, Gtk.SpinButton):
+                self.config[key] = int(widget.get_value() * 60)
             else:
                 self.config[key] = widget.get_text()
         self.on_save_cb(self.config)

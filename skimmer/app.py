@@ -9,6 +9,7 @@ from gi.repository import Gtk, GLib, Adw, Gdk, Gio
 
 from skimmer.config import load_config, save_config
 from skimmer.worker import ProcessingManager, Task
+from skimmer.scanner import BackgroundScanner
 from skimmer.library import LibraryPage
 from skimmer.search import SearchPage
 from skimmer.processing import ProcessingPage
@@ -24,6 +25,7 @@ class SkimmerApp(Adw.Application):
         style_mgr = Adw.StyleManager.get_default()
         style_mgr.set_color_scheme(Adw.ColorScheme.PREFER_DARK)
         self.proc_mgr = ProcessingManager(self.config)
+        self.scanner = BackgroundScanner(self.config)
         self.connect("activate", self._on_activate)
         Gtk.Window.set_default_icon_name("tech.jptr.Skimmer")
         self._last_connected = False
@@ -49,6 +51,7 @@ class SkimmerApp(Adw.Application):
 
         self.media_integration = create_integration(self.player_bar)
         self.media_integration.start()
+        self.scanner.start()
 
         self.stack = Gtk.Stack()
         self.stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
@@ -72,7 +75,7 @@ class SkimmerApp(Adw.Application):
         self.proc_mgr.connect("task-removed", self._on_proc_change)
         self._update_proc_badge()
 
-        page = SettingsPage(self.config, self._on_save_settings)
+        page = SettingsPage(self.config, self._on_save_settings, scanner=self.scanner)
         self.stack.add_titled(page, "settings", "Settings")
         self.pages["settings"] = page
 
@@ -270,6 +273,7 @@ class SkimmerApp(Adw.Application):
         self.config = config
         save_config(config)
         self.proc_mgr.config = config
+        self.scanner.config = config
         self.pages["library"].config = config
         self.pages["search"].config = config
 

@@ -19,6 +19,7 @@ def test_default_config_keys():
     expected_keys = {
         "music_dir", "beets_lib", "temp_dir", "mount_path",
         "ytdlp_format", "ytdlp_audio_format", "max_concurrent_downloads",
+        "scan_interval",
     }
     assert set(DEFAULT_CONFIG) == expected_keys
 
@@ -29,6 +30,7 @@ def test_default_config_values():
     assert DEFAULT_CONFIG["ytdlp_format"] == "bestaudio/best"
     assert DEFAULT_CONFIG["ytdlp_audio_format"] == "mp3"
     assert DEFAULT_CONFIG["max_concurrent_downloads"] == 2
+    assert DEFAULT_CONFIG["scan_interval"] == 1800
 
 
 class TestLoadConfig:

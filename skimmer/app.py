@@ -128,12 +128,39 @@ class SkimmerApp(Adw.Application):
     def _on_mount_changed(self, *args):
         self._check_mount()
 
+    def _detect_y1_mount(self):
+        for mount in Gio.VolumeMonitor.get().get_mounts():
+            path = mount.get_root().get_path()
+            if not path or not path.startswith("/run/media/"):
+                continue
+            vol = mount.get_volume()
+            name = vol.get_name().lower() if vol else ""
+            if "y1" in name or "innioasis" in name:
+                return path
+            if os.path.isdir(os.path.join(path, "Music")):
+                return path
+        return None
+
     def _check_mount(self):
         mount_path = self.config["mount_path"]
-        connected = any(
-            mount.get_root().get_path() == mount_path
-            for mount in Gio.VolumeMonitor.get().get_mounts()
-        )
+        if not mount_path:
+            detected = self._detect_y1_mount()
+            if detected:
+                mount_path = detected
+                self.config["mount_path"] = detected
+                save_config(self.config)
+                print(f"[skimmer] Auto-detected Y1 at {detected}")
+
+        mounts = [m.get_root().get_path()
+                  for m in Gio.VolumeMonitor.get().get_mounts()]
+        connected = mount_path in mounts
+
+        print(f"[skimmer] _check_mount: mount_path={mount_path!r}")
+        print(f"[skimmer] _check_mount: Gio mounts={mounts}")
+        print(f"[skimmer] _check_mount: Gio connected={connected}")
+        if not connected and mount_path and os.path.isdir(mount_path):
+            print(f"[skimmer] _check_mount: DIR EXISTS on disk but not in Gio mounts!")
+            print(f"[skimmer] _check_mount: realpath={os.path.realpath(mount_path)!r}")
 
         if connected:
             self.sync_icon.set_from_icon_name("drive-harddisk-usb-symbolic")

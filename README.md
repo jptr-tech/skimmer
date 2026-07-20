@@ -11,6 +11,15 @@ media device/Rockbox device)
 
 Built with Python, GTK4 + Adwaita, GStreamer, and MPRIS integration.
 
+## What's it for?
+
+Having a little MP3 player is fun, but managing music can be a pain. What if you
+could just easily download any album and have it sync in seconds to your MP3
+player? That's why I built this. It skims (hence the name) from yt-music and
+then downloads them (and organizes with the `beet` utility). It is really for me
+and my Innioasis Y1, but I thought I would share so anyone else using a Rockbox
+device can easily get and sync music.
+
 ## Features
 
 - Sync music library to Innioasis Y1

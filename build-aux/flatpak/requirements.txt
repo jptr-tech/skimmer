@@ -1,0 +1,6 @@
+ytmusicapi>=1.0.0
+yt-dlp>=2023.0.0
+beets[fetchart]>=2.0.0
+mutagen
+mpris-server>=0.8.1
+platformdirs>=4.0.0

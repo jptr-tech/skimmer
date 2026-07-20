@@ -1,6 +1,4 @@
 import os
-import subprocess
-import sys
 import threading
 
 import gi
@@ -10,7 +8,11 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
 from gi.repository import Adw, Gtk, GLib, Gdk
 
+from beets import context as beets_context
 from beets.library import Library
+from beets.util import bytestring_path
+
+from skimmer.widgets import AlbumCover, AlbumDetail, find_cover, COVER_SIZE
 
 from skimmer.widgets import AlbumCover, AlbumDetail, find_cover, COVER_SIZE
 
@@ -84,39 +86,21 @@ class LibraryPage(Gtk.Box):
     def _fetch_missing_covers(self):
         if not self._beets_lib:
             return
-        cmd = [sys.executable, "-m", "beets", "fetchart"]
-        print(f"[y1-skimmer] Starting: {' '.join(cmd)}")
+        print(f"[y1-skimmer] Fetching missing album art...")
         GLib.idle_add(self.status_label.set_text, "Fetching missing album art...")
         try:
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
+            music_dir = os.path.expanduser(
+                self.config.get("music_dir", "~/Music")
             )
-            count = 0
-            for line in proc.stdout:
-                line = line.strip()
-                if line:
-                    count += 1
-                    print(f"[fetchart] {line}")
-                    if (
-                        count % 5 == 0
-                        or "has album art" in line
-                        or "fetching" in line.lower()
-                    ):
-                        short = line[:70]
-                        GLib.idle_add(self.status_label.set_text, f"fetchart: {short}")
-            proc.wait(timeout=120)
-            print(f"[y1-skimmer] fetchart done: checked {count} albums")
+            beets_context.set_music_dir(bytestring_path(music_dir))
+            from beetsplug.fetchart import FetchArtPlugin
+            fa = FetchArtPlugin()
+            albums = list(self._beets_lib.albums())
+            fa.batch_fetch_art(self._beets_lib, albums, force=False, quiet=True)
+            print(f"[y1-skimmer] fetchart done: checked {len(albums)} albums")
             GLib.idle_add(
-                self.status_label.set_text, f"fetchart: checked {count} albums"
+                self.status_label.set_text, f"fetchart: checked {len(albums)} albums"
             )
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            print("[y1-skimmer] fetchart timed out after 120s")
-            GLib.idle_add(self.status_label.set_text, "fetchart timed out")
         except Exception as e:
             print(f"[y1-skimmer] fetchart error: {e}")
             GLib.idle_add(self.status_label.set_text, f"fetchart: {e}")
@@ -127,8 +111,12 @@ class LibraryPage(Gtk.Box):
             lib_path = os.path.expanduser(
                 self.config.get("beets_lib", "~/Music/.musiclibrary.db")
             )
+            music_dir = os.path.expanduser(
+                self.config.get("music_dir", "~/Music")
+            )
+            beets_context.set_music_dir(bytestring_path(music_dir))
             if os.path.exists(lib_path):
-                self._beets_lib = Library(lib_path)
+                self._beets_lib = Library(lib_path, directory=music_dir)
         except Exception:
             pass
 

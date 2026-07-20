@@ -1,0 +1,34 @@
+---
+app-id: com.y1.skimmer
+runtime: org.gnome.Platform
+runtime-version: "48"
+sdk: org.gnome.Sdk
+command: y1-skimmer
+
+finish-args:
+  - --share=network
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --socket=session-bus
+  - --talk-name=org.mpris.MediaPlayer2.*
+  - --filesystem=home
+  - --filesystem=/run/media
+
+modules:
+  - name: ffmpeg
+    buildsystem: simple
+    build-commands:
+      - /usr/lib/sdk/ffmpeg/install.sh
+
+  - name: y1-skimmer
+    buildsystem: simple
+    build-commands:
+      - pip3 install --prefix=/app --no-build-isolation --no-deps .
+      - install -Dm644 build-aux/data/com.y1.skimmer.desktop /app/share/applications/com.y1.skimmer.desktop
+      - install -Dm644 build-aux/data/icons/com.y1.skimmer.png /app/share/icons/hicolor/256x256/apps/com.y1.skimmer.png
+      - install -Dm644 build-aux/data/com.y1.skimmer.metainfo.xml /app/share/metainfo/com.y1.skimmer.metainfo.xml
+    sources:
+      - type: dir
+        path: ../..

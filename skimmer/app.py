@@ -1,12 +1,11 @@
 import os
-import subprocess
 import threading
 
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gtk, GLib, Adw, Gdk
+from gi.repository import Gtk, GLib, Adw, Gdk, Gio
 
 from skimmer.config import load_config, save_config
 from skimmer.worker import ProcessingManager, Task
@@ -118,14 +117,22 @@ class SkimmerApp(Adw.Application):
         toolbar_view.add_top_bar(header)
         toolbar_view.set_content(self.stack)
 
-        self._detect_timer = GLib.timeout_add_seconds(5, self._check_y1)
+        monitor = Gio.VolumeMonitor.get()
+        monitor.connect("mount-added", self._on_mount_changed)
+        monitor.connect("mount-removed", self._on_mount_changed)
         self._check_y1()
 
         win.present()
 
+    def _on_mount_changed(self, *args):
+        self._check_y1()
+
     def _check_y1(self):
         mount_path = self.config["y1_mount_path"]
-        connected = os.path.isdir(mount_path)
+        connected = any(
+            mount.get_root().get_path() == mount_path
+            for mount in Gio.VolumeMonitor.get().get_mounts()
+        )
 
         if connected:
             self.sync_icon.set_from_icon_name("drive-harddisk-usb-symbolic")
@@ -148,7 +155,6 @@ class SkimmerApp(Adw.Application):
                 self._auto_sync_timer = None
 
         self._last_connected = connected
-        return GLib.SOURCE_CONTINUE
 
     def _do_sync(self, *args):
         if self._sync_task is not None:
@@ -194,24 +200,13 @@ class SkimmerApp(Adw.Application):
     def _eject_thread(self):
         mount_path = self.config["y1_mount_path"]
         try:
-            result = subprocess.run(
-                ["findmnt", "-n", "-o", "SOURCE", mount_path],
-                capture_output=True, text=True, timeout=10,
-            )
-            device = result.stdout.strip()
-            if not device:
-                raise RuntimeError("Could not find device for mount point")
-            subprocess.run(
-                ["udisksctl", "unmount", "-b", device],
-                capture_output=True, text=True, timeout=30,
-                check=True,
-            )
-            subprocess.run(
-                ["udisksctl", "power-off", "-b", device],
-                capture_output=True, text=True, timeout=30,
-                check=False,
-            )
-            GLib.idle_add(self._on_eject_done, None)
+            for mount in Gio.VolumeMonitor.get().get_mounts():
+                if mount.get_root().get_path() == mount_path:
+                    mount.unmount(Gio.MountUnmountFlags.NONE, None)
+                    GLib.idle_add(self._on_eject_done, None)
+                    return
+            GLib.idle_add(self._on_eject_done,
+                          f"Mount not found: {mount_path}")
         except Exception as e:
             GLib.idle_add(self._on_eject_done, str(e))
 

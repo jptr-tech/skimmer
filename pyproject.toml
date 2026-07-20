@@ -9,6 +9,7 @@ dependencies = [
     "yt-dlp>=2023.0.0",
     "beets>=2.0.0",
     "mpris-server>=0.8.1",
+    "platformdirs>=4.0.0",
 ]
 
 [project.scripts]

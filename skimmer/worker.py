@@ -1,13 +1,14 @@
 import os
 import queue
 import shutil
-import subprocess
-import sys
 import threading
 import uuid
 from pathlib import Path
 
 import yt_dlp
+from beets import context as beets_context
+from beets.library import Item, Library
+from beets.util import bytestring_path
 from gi.repository import GLib, GObject
 
 from skimmer import synccache
@@ -215,88 +216,59 @@ class ProcessingManager(GObject.Object):
                     print(f"[y1-skimmer]   Warning: could not tag {fname}: {e}")
             print(f"[y1-skimmer] Tagged {tagged}/{len(files)} files with artist={artist}, album={album_title}")
 
-        print(f"[y1-skimmer] Running beet import...")
-        task.emit("updated", task.status, 0.0, "Running beet import...")
+        print(f"[y1-skimmer] Copying files to music library...")
+        task.emit("updated", task.status, 0.0, "Copying to music library...")
 
-        result = subprocess.run(
-            [sys.executable, "-m", "beets", "import", "-qC",
-             "--quiet-fallback=asis", album_dir],
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
-        out = (result.stdout or "") + (result.stderr or "")
-        print(f"[y1-skimmer] beet import output:\n{out[:2000]}")
+        album_dst = os.path.join(music_dir, artist, album_title) if artist and album_title else album_dir
+        os.makedirs(album_dst, exist_ok=True)
 
-        if result.returncode != 0 or "No files imported" in out:
-            msg = result.stderr[:500] if result.stderr else out[:500]
-            print(f"[y1-skimmer] Beet import FAILED (rc={result.returncode})")
-            print(f"[y1-skimmer]   {msg}")
-            if result.returncode != 0:
-                raise RuntimeError(f"Beet import failed: {msg}")
-            print(f"[y1-skimmer]   (rc=0 but no files were imported — trying without quiet)")
-            result2 = subprocess.run(
-                [sys.executable, "-m", "beets", "import", "-C",
-                 "--quiet-fallback=asis", album_dir],
-                capture_output=True, text=True, timeout=300,
-            )
-            print(f"[y1-skimmer]   retry output:\n{(result2.stdout or '')[:1000]}")
-            if "No files imported" in (result2.stdout or ""):
-                raise RuntimeError(f"Beet import could not import files from {album_dir}")
+        audio_exts = {'.mp3', '.flac', '.ogg', '.opus', '.m4a', '.mp4', '.m4b', '.wav'}
+        copied = []
+        for fname in files:
+            ext = os.path.splitext(fname)[1].lower()
+            if ext not in audio_exts:
+                continue
+            src = os.path.join(album_dir, fname)
+            dst = os.path.join(album_dst, fname)
+            shutil.copy2(src, dst)
+            copied.append(dst)
+        print(f"[y1-skimmer] Copied {len(copied)} audio files to {album_dst}")
 
-        task.progress = 1.0
-        print(f"[y1-skimmer] Import complete")
+        try:
+            print(f"[y1-skimmer] Opening beets library at {beets_db}")
+            beets_context.set_music_dir(bytestring_path(music_dir))
+            lib = Library(beets_db, directory=music_dir)
 
-        if "already in the library" in out or "Skipping" in out:
-            try:
-                folder_name = os.path.basename(album_dir)
-                album_query = folder_name.split(" - ", 1)[-1] if " - " in folder_name else folder_name
-                if artist and album_title:
-                    beets_query = f"album:{album_title} artist:{artist}"
-                else:
-                    beets_query = f"album:{album_query}"
-                result3 = subprocess.run(
-                    [sys.executable, "-m", "beets", "list", "-ap",
-                     beets_query],
-                    capture_output=True, text=True, timeout=10,
-                )
-                if result3.stdout.strip():
-                    print(f"[y1-skimmer] Imported files:\n{result3.stdout.strip()[:500]}")
-                else:
-                    print(f"[y1-skimmer] WARNING: no files found in library for this import")
-                    print(f"[y1-skimmer]   Retrying import with duplicates forced...")
-                    task.emit("updated", task.status, 0.0, "Retrying import (duplicates)...")
-                    import tempfile
-                    dup_config = tempfile.NamedTemporaryFile(
-                        mode="w", suffix=".yaml", delete=False, prefix="beets-import-"
-                    )
-                    dup_config.write("import:\n  duplicate_action: keep\n")
-                    dup_config.close()
-                    try:
-                        result4 = subprocess.run(
-                            [sys.executable, "-m", "beets", "-c", dup_config.name,
-                             "import", "-qC", "--quiet-fallback=asis", album_dir],
-                            capture_output=True, text=True, timeout=300,
-                        )
-                    finally:
-                        os.unlink(dup_config.name)
-                    out4 = (result4.stdout or "") + (result4.stderr or "")
-                    print(f"[y1-skimmer]   retry output:\n{out4[:1000]}")
-                    result5 = subprocess.run(
-                        [sys.executable, "-m", "beets", "list", "-ap",
-                         beets_query],
-                        capture_output=True, text=True, timeout=10,
-                    )
-                    if result5.stdout.strip():
-                        print(f"[y1-skimmer] Imported on retry:\n{result5.stdout.strip()[:500]}")
-                    else:
-                        print(f"[y1-skimmer]   Still no files after retry — album may already exist under a different name")
-            except Exception as e:
-                print(f"[y1-skimmer] Verification query error: {e}")
-            finally:
-                shutil.rmtree(album_dir, ignore_errors=True)
-                print(f"[y1-skimmer] Cleaned up temp dir")
-        else:
+            items = []
+            for fpath in copied:
+                item = Item.from_path(fpath)
+                item.add(lib)
+                items.append(item)
+            print(f"[y1-skimmer] Added {len(items)} items to beets library")
+
+            if items:
+                album = lib.add_album(items)
+                print(f"[y1-skimmer] Created album '{album.album}' (id={album.id})")
+                try:
+                    from beetsplug.fetchart import FetchArtPlugin
+                    fa = FetchArtPlugin()
+                    fa.batch_fetch_art(lib, [album], force=False, quiet=True)
+                except Exception as fe:
+                    print(f"[y1-skimmer] fetchart for new album failed: {fe}")
+
+            task.progress = 1.0
+            print(f"[y1-skimmer] Import complete")
+
+            beets_query = f"album:{album_title} artist:{artist}"
+            found = list(lib.items(beets_query))
+            if found:
+                print(f"[y1-skimmer] Verified: {len(found)} tracks in library for {artist} - {album_title}")
+            else:
+                print(f"[y1-skimmer] WARNING: verification found no tracks for {artist} - {album_title}")
+        except Exception as e:
+            print(f"[y1-skimmer] Beets import error: {e}")
+            raise
+        finally:
             shutil.rmtree(album_dir, ignore_errors=True)
             print(f"[y1-skimmer] Cleaned up temp dir")
 
@@ -326,12 +298,11 @@ class ProcessingManager(GObject.Object):
                 for p in sorted(modified)[:5]:
                     print(f"[y1-skimmer] Sync:   modified: {p}")
             if not added and not modified and not deleted:
-                print("[y1-skimmer] Sync: no changes, skipping rsync")
+                print("[y1-skimmer] Sync: no changes, skipping copy")
                 GLib.idle_add(task.emit, "updated", task.status, 1.0, "Already up to date")
                 task.progress = 1.0
                 return
 
-            to_transfer = sorted(added) + sorted(modified)
             for p in sorted(deleted):
                 dst_path = os.path.join(dst, p)
                 try:
@@ -341,29 +312,12 @@ class ProcessingManager(GObject.Object):
                         shutil.rmtree(dst_path, ignore_errors=True)
                 except OSError:
                     pass
-            if to_transfer:
-                total = len(to_transfer)
-                GLib.idle_add(task.emit, "updated", task.status, 0.0,
-                              f"Syncing {total} files...")
-                import tempfile
-                files_list = tempfile.NamedTemporaryFile(
-                    mode="w", delete=False, suffix=".rsync", prefix="y1-skimmer-"
-                )
-                for p in to_transfer:
-                    files_list.write(p + "\n")
-                files_list.close()
-                print(f"[y1-skimmer] Sync: starting rsync ({total} files)")
-                proc = subprocess.Popen(
-                    ["rsync", "-a", "--delete",
-                     f"--files-from={files_list.name}",
-                     "--out-format=%n", f"{src}/", f"{dst}/"],
-                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                    text=True, bufsize=1,
-                )
-            else:
+
+            to_transfer = sorted(added) + sorted(modified)
+            if not to_transfer:
                 for p in sorted(deleted)[:10]:
                     print(f"[y1-skimmer] Sync:   deleted: {p}")
-                print("[y1-skimmer] Sync: only deletions, skipping rsync")
+                print("[y1-skimmer] Sync: only deletions, skipping copy")
                 GLib.idle_add(task.emit, "updated", task.status, 0.95, "Saving cache...")
                 synccache.update_cache(cache_path, src)
                 print(f"[y1-skimmer] Sync: cache saved to {cache_path}")
@@ -372,72 +326,45 @@ class ProcessingManager(GObject.Object):
                 print("[y1-skimmer] Sync complete (deletions only)")
                 return
         else:
-            total = 0
-            try:
-                r = subprocess.run(
-                    ["rsync", "-ahn", "--delete", "--out-format=%n",
-                     "--exclude=.musiclibrary.db",
-                     f"{src}/", f"{dst}/"],
-                    capture_output=True, text=True, timeout=60,
-                )
-                total = len([l for l in r.stdout.split("\n") if l.strip()])
-                print(f"[y1-skimmer] Sync: dry-run — {total} items to transfer")
-            except Exception as e:
-                print(f"[y1-skimmer] Sync: dry-run failed: {e}")
-            GLib.idle_add(task.emit, "updated", task.status, 0.0,
-                          f"Syncing {total} files..." if total else "Indexing...")
-            if not total:
-                print("[y1-skimmer] Sync: no changes, skipping rsync")
-                GLib.idle_add(task.emit, "updated", task.status, 0.95, "Saving cache...")
-                synccache.update_cache(cache_path, src)
-                print(f"[y1-skimmer] Sync: cache saved to {cache_path}")
-                task.progress = 1.0
-                GLib.idle_add(task.emit, "updated", task.status, 1.0, "Sync complete")
-                print("[y1-skimmer] Sync complete (no cache, nothing to sync)")
-                return
-            print(f"[y1-skimmer] Sync: starting rsync ({total} files)")
-            proc = subprocess.Popen(
-                ["rsync", "-a", "--delete", "--out-format=%n",
-                 "--exclude=.musiclibrary.db", f"{src}/", f"{dst}/"],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                text=True, bufsize=1,
-            )
+            to_transfer = sorted(os.listdir(src))
+            print(f"[y1-skimmer] Sync: first sync — {len(to_transfer)} top-level items")
+
+        total = len(to_transfer)
+        print(f"[y1-skimmer] Sync: copying {total} files")
+        GLib.idle_add(task.emit, "updated", task.status, 0.0, f"Copying {total} files...")
 
         completed = 0
         last_tick = -1
-        files_list_path = None
-        if cached is not None and to_transfer:
-            files_list_path = files_list.name
+        failed = []
 
-        for line in proc.stdout:
-            line = line.rstrip("\n\r")
-            if not line:
-                continue
+        for p in to_transfer:
+            src_path = os.path.join(src, p)
+            dst_path = os.path.join(dst, p)
+            try:
+                if os.path.isdir(src_path):
+                    os.makedirs(dst_path, exist_ok=True)
+                else:
+                    os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+                    shutil.copy2(src_path, dst_path)
+            except Exception as e:
+                print(f"[y1-skimmer] Sync:   failed to copy {p}: {e}")
+                failed.append(p)
             completed += 1
-            pct = min(completed / total, 1.0) if total > 0 else 0.0
+            pct = completed / total
             tick = int(pct * 50)
             if tick != last_tick:
                 last_tick = tick
                 task.progress = pct
                 GLib.idle_add(task.emit, "updated", task.status, pct,
-                              f"Syncing... ({completed} files)")
+                              f"Copying... ({completed}/{total})")
+            if completed <= 5 or completed % 50 == 0:
+                print(f"[y1-skimmer] Sync:   {completed}/{total}: {p[:120]}")
 
-            if completed <= 5 or completed % 100 == 0:
-                print(f"[y1-skimmer] rsync: {line[:200]}")
+        if failed:
+            print(f"[y1-skimmer] Sync: {len(failed)} files failed: {failed[:5]}...")
+            raise RuntimeError(f"Sync failed: {len(failed)} files could not be copied")
 
-        proc.wait()
-        print(f"[y1-skimmer] Sync: rsync finished (rc={proc.returncode})")
-        if files_list_path:
-            try:
-                os.unlink(files_list_path)
-            except OSError:
-                pass
-
-        stderr = proc.stderr.read()
-        if proc.returncode != 0:
-            print(f"[y1-skimmer] Sync FAILED: {stderr[:500]}")
-            raise RuntimeError(f"Sync failed (rc={proc.returncode}): {stderr[:500]}")
-
+        print(f"[y1-skimmer] Sync: copy finished ({completed} files)")
         GLib.idle_add(task.emit, "updated", task.status, 0.95, "Saving cache...")
         synccache.update_cache(cache_path, src)
         print(f"[y1-skimmer] Sync: cache saved to {cache_path}")

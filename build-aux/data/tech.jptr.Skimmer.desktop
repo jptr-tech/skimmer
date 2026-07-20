@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Skimmer
+Comment=Music player
+Exec=skimmer
+Type=Application
+Icon=tech.jptr.Skimmer
+Categories=Audio;Music;
+Terminal=false
+MimeType=audio/flac;audio/mpeg;audio/ogg;audio/wav;audio/aac;audio/mp4;

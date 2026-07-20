@@ -25,6 +25,7 @@ class SkimmerApp(Adw.Application):
         style_mgr.set_color_scheme(Adw.ColorScheme.PREFER_DARK)
         self.proc_mgr = ProcessingManager(self.config)
         self.connect("activate", self._on_activate)
+        Gtk.Window.set_default_icon_name("tech.jptr.Skimmer")
         self._last_connected = False
         self._sync_task = None
         self._auto_sync_timer = None

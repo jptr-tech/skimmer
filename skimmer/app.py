@@ -15,6 +15,7 @@ from skimmer.search import SearchPage
 from skimmer.processing import ProcessingPage
 from skimmer.settings import SettingsPage
 from skimmer.player import PlayerBar
+from skimmer.playlists_ui import PlaylistsPage
 from skimmer.media_integration import create_integration
 
 
@@ -63,6 +64,10 @@ class SkimmerApp(Adw.Application):
         self.stack.add_titled(page, "library", "Library")
         self.pages["library"] = page
 
+        page = PlaylistsPage(self.config, player_bar=self.player_bar)
+        self.stack.add_titled(page, "playlists", "Playlists")
+        self.pages["playlists"] = page
+
         page = SearchPage(self.config, self.proc_mgr, player_bar=self.player_bar)
         self.stack.add_titled(page, "search", "Search")
         self.pages["search"] = page
@@ -78,6 +83,8 @@ class SkimmerApp(Adw.Application):
         page = SettingsPage(self.config, self._on_save_settings, scanner=self.scanner)
         self.stack.add_titled(page, "settings", "Settings")
         self.pages["settings"] = page
+
+        self.stack.connect("notify::visible-child", self._on_playlists_page_changed)
 
         self.player_bar.set_show_album_cb(
             lambda: self.stack.set_visible_child_name("library")
@@ -103,6 +110,12 @@ class SkimmerApp(Adw.Application):
         self.sync_spinner.set_visible(False)
         sync_box.append(self.sync_spinner)
 
+        self.scan_btn = Gtk.Button(label="Scan")
+        self.scan_btn.add_css_class("flat")
+        self.scan_btn.set_visible(False)
+        self.scan_btn.connect("clicked", lambda b: self._check_mount())
+        sync_box.append(self.scan_btn)
+
         self.sync_btn = Gtk.Button(label="Sync")
         self.sync_btn.add_css_class("flat")
         self.sync_btn.set_visible(False)
@@ -127,6 +140,11 @@ class SkimmerApp(Adw.Application):
         self._check_mount()
 
         win.present()
+
+    def _on_playlists_page_changed(self, stack, pspec):
+        child = stack.get_visible_child()
+        if child is self.pages.get("playlists"):
+            child._load()
 
     def _on_mount_changed(self, *args):
         self._check_mount()
@@ -154,8 +172,7 @@ class SkimmerApp(Adw.Application):
                 save_config(self.config)
                 print(f"[skimmer] Auto-detected Y1 at {detected}")
 
-        mounts = [m.get_root().get_path()
-                  for m in Gio.VolumeMonitor.get().get_mounts()]
+        mounts = [m.get_root().get_path() for m in Gio.VolumeMonitor.get().get_mounts()]
         connected = mount_path in mounts
 
         print(f"[skimmer] _check_mount: mount_path={mount_path!r}")
@@ -166,6 +183,7 @@ class SkimmerApp(Adw.Application):
             print(f"[skimmer] _check_mount: realpath={os.path.realpath(mount_path)!r}")
 
         if connected:
+            self.scan_btn.set_visible(False)
             self.sync_icon.set_from_icon_name("drive-harddisk-usb-symbolic")
             self.sync_btn.set_visible(True)
             self.eject_btn.set_visible(True)
@@ -176,6 +194,7 @@ class SkimmerApp(Adw.Application):
                         GLib.source_remove(self._auto_sync_timer)
                     self._auto_sync_timer = GLib.timeout_add_seconds(5, self._do_sync)
         else:
+            self.scan_btn.set_visible(True)
             self.sync_icon.set_from_icon_name("drive-harddisk-usb-symbolic")
             self.sync_label.set_text("")
             self.sync_btn.set_visible(False)
@@ -236,8 +255,7 @@ class SkimmerApp(Adw.Application):
                     mount.unmount(Gio.MountUnmountFlags.NONE, None)
                     GLib.idle_add(self._on_eject_done, None)
                     return
-            GLib.idle_add(self._on_eject_done,
-                          f"Mount not found: {mount_path}")
+            GLib.idle_add(self._on_eject_done, f"Mount not found: {mount_path}")
         except Exception as e:
             GLib.idle_add(self._on_eject_done, str(e))
 
@@ -257,7 +275,11 @@ class SkimmerApp(Adw.Application):
 
     def _on_proc_change(self, *args):
         self._update_proc_badge()
-        if isinstance(args[0], Task) and args[1] == "completed" and args[0].type == "import":
+        if (
+            isinstance(args[0], Task)
+            and args[1] == "completed"
+            and args[0].type == "import"
+        ):
             GLib.idle_add(self.pages["library"]._refresh)
 
     def _update_proc_badge(self):
@@ -280,7 +302,9 @@ class SkimmerApp(Adw.Application):
     def _on_global_key(self, ctrl, keyval, keycode, state):
         if keyval in (Gdk.KEY_space, Gdk.KEY_KP_Space):
             focus = ctrl.get_widget().get_focus()
-            if focus is not None and isinstance(focus, (Gtk.Entry, Gtk.SearchEntry, Gtk.ComboBoxText)):
+            if focus is not None and isinstance(
+                focus, (Gtk.Entry, Gtk.SearchEntry, Gtk.ComboBoxText)
+            ):
                 return False
             self.player_bar._on_play_pause(None)
             return True

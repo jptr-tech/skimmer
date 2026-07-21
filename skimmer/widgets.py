@@ -1,6 +1,7 @@
 import json
 import os
 import threading
+import time
 import urllib.parse
 import urllib.request
 
@@ -12,6 +13,7 @@ gi.require_version("Pango", "1.0")
 gi.require_version("GdkPixbuf", "2.0")
 from gi.repository import Adw, Gtk, Gdk, GLib, Pango, GdkPixbuf
 
+from skimmer.playlist import Playlist, PlaylistTrack, load_playlists, save_playlists
 
 COVER_SIZE = 150
 
@@ -493,6 +495,13 @@ class AlbumDetail(Gtk.Box):
                 art_lbl.set_single_line_mode(True)
                 hbox.append(art_lbl)
 
+            playlist_btn = Gtk.MenuButton()
+            playlist_btn.set_icon_name("list-add-symbolic")
+            playlist_btn.set_tooltip_text("Add to playlist")
+            playlist_btn.set_has_frame(False)
+            playlist_btn.set_popover(self._build_playlist_popover(t))
+            hbox.append(playlist_btn)
+
             row.set_child(hbox)
             self._track_list.append(row)
 
@@ -500,6 +509,113 @@ class AlbumDetail(Gtk.Box):
 
         if self._player_bar:
             self._player_bar.set_track_change_cb(self._on_current_track_changed)
+
+    def _build_playlist_popover(self, track):
+        file_path = track.get("file_path")
+        track_title = track.get("title", "")
+        track_artist = track.get("artist", "")
+
+        popover = Gtk.Popover()
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        box.set_margin_start(6)
+        box.set_margin_end(6)
+        box.set_margin_top(6)
+        box.set_margin_bottom(6)
+        popover.set_child(box)
+
+        def populate():
+            while box.get_first_child():
+                box.remove(box.get_first_child())
+
+            playlists = load_playlists()
+
+            for pl in playlists:
+                already = any(t.file_path == file_path for t in pl.tracks)
+                prefix = "✔ " if already else "  "
+                btn = Gtk.Button(label=f"{prefix}{pl.name}")
+                btn.set_halign(Gtk.Align.FILL)
+                btn.add_css_class("flat")
+
+                def toggle(b, pl=pl):
+                    print(f"[skimmer] toggle {pl.name}: fp={file_path!r}")
+                    if not file_path:
+                        print("[skimmer] toggle: no file_path, skipping")
+                        return
+                    existing = [t for t in pl.tracks if t.file_path == file_path]
+                    if existing:
+                        print(f"[skimmer] toggle: removing track from '{pl.name}'")
+                        pl.tracks[:] = [t for t in pl.tracks if t.file_path != file_path]
+                    else:
+                        print(f"[skimmer] toggle: adding track to '{pl.name}'")
+                        pl.tracks.append(PlaylistTrack(
+                            file_path=file_path, title=track_title,
+                            artist=track_artist, album=self._album,
+                        ))
+                    pl.last_modified = time.time()
+                    save_playlists(playlists)
+                    popover.popdown()
+
+                btn.connect("clicked", toggle)
+                box.append(btn)
+
+            separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+            separator.set_margin_top(4)
+            separator.set_margin_bottom(4)
+            box.append(separator)
+
+            new_btn = Gtk.Button(label="+ New Playlist...")
+            new_btn.set_halign(Gtk.Align.FILL)
+            new_btn.add_css_class("flat")
+
+            def new_playlist(b):
+                parent = self.get_root() if self.get_root() else None
+                win = Gtk.Window(title="New Playlist", transient_for=parent, modal=True)
+                win.set_default_size(300, 100)
+                vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+                vbox.set_margin_start(12)
+                vbox.set_margin_end(12)
+                vbox.set_margin_top(12)
+                vbox.set_margin_bottom(12)
+                win.set_child(vbox)
+                lbl = Gtk.Label(label="Playlist name:")
+                vbox.append(lbl)
+                entry = Gtk.Entry()
+                entry.set_placeholder_text("e.g. Favorites")
+                vbox.append(entry)
+
+                def do_create(*a):
+                    name = entry.get_text().strip()
+                    if not name:
+                        return
+                    pl = Playlist(name=name)
+                    if file_path:
+                        pl.tracks.append(PlaylistTrack(
+                            file_path=file_path, title=track_title,
+                            artist=track_artist, album=self._album,
+                        ))
+                    pl.last_modified = time.time()
+                    playlists.append(pl)
+                    save_playlists(playlists)
+                    win.close()
+
+                entry.connect("activate", do_create)
+                btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+                btn_box.set_halign(Gtk.Align.END)
+                create_btn = Gtk.Button(label="Create & Add")
+                create_btn.add_css_class("suggested-action")
+                create_btn.connect("clicked", do_create)
+                btn_box.append(create_btn)
+                cancel = Gtk.Button(label="Cancel")
+                cancel.connect("clicked", lambda w: win.close())
+                btn_box.append(cancel)
+                vbox.append(btn_box)
+                win.present()
+
+            new_btn.connect("clicked", new_playlist)
+            box.append(new_btn)
+
+        popover.connect("show", lambda p: populate())
+        return popover
 
     def _on_track_activated(self, listbox, row):
         if not self._player_bar:

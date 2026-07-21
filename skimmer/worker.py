@@ -2,6 +2,7 @@ import os
 import queue
 import shutil
 import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from beets.util import bytestring_path
 from gi.repository import GLib, GObject
 
 from skimmer import synccache
+from skimmer.playlist import Playlist, PlaylistTrack, load_playlists, save_playlists, export_m3u8, parse_m3u8
 
 
 class Task(GObject.Object):
@@ -365,9 +367,68 @@ class ProcessingManager(GObject.Object):
             raise RuntimeError(f"Sync failed: {len(failed)} files could not be copied")
 
         print(f"[skimmer] Sync: copy finished ({completed} files)")
+        GLib.idle_add(task.emit, "updated", task.status, 0.85, "Syncing playlists...")
+        self._sync_playlists(task, dst)
         GLib.idle_add(task.emit, "updated", task.status, 0.95, "Saving cache...")
         synccache.update_cache(cache_path, src)
         print(f"[skimmer] Sync: cache saved to {cache_path}")
         task.progress = 1.0
         GLib.idle_add(task.emit, "updated", task.status, 1.0, "Sync complete")
         print(f"[skimmer] Sync complete ({completed} files)")
+
+    def _sync_playlists(self, task, music_dst):
+        mount_path = self.config.get("mount_path", "")
+        if not mount_path:
+            return
+        device_root = os.path.realpath(mount_path)
+        playlist_dir = os.path.join(device_root, "Playlists")
+        os.makedirs(playlist_dir, exist_ok=True)
+
+        app_playlists = load_playlists()
+        app_by_name = {p.name: p for p in app_playlists}
+
+        device_m3us = {}
+        if os.path.isdir(playlist_dir):
+            for fname in os.listdir(playlist_dir):
+                if fname.endswith(".m3u8") or fname.endswith(".m3u"):
+                    name = os.path.splitext(fname)[0]
+                    fpath = os.path.join(playlist_dir, fname)
+                    device_m3us[name] = (fpath, os.path.getmtime(fpath))
+
+        changed = False
+        for name, pl in list(app_by_name.items()):
+            dev_info = device_m3us.pop(name, None)
+            if dev_info:
+                dev_path, dev_mtime = dev_info
+                if dev_mtime > pl.last_modified:
+                    print(f"[skimmer] Sync: playlist '{name}' newer on device — importing")
+                    parsed = parse_m3u8(dev_path)
+                    if parsed:
+                        pl.tracks = parsed.tracks
+                        pl.last_modified = dev_mtime
+                        changed = True
+                else:
+                    print(f"[skimmer] Sync: playlist '{name}' newer in app — exporting")
+                    export_m3u8(pl, device_root, dev_path)
+                    pl.last_modified = time.time()
+                    changed = True
+            else:
+                if pl.tracks:
+                    out_path = os.path.join(playlist_dir, f"{name}.m3u8")
+                    print(f"[skimmer] Sync: creating playlist '{name}' on device")
+                    export_m3u8(pl, device_root, out_path)
+                    pl.last_modified = time.time()
+                    changed = True
+
+        for name, (dev_path, _) in device_m3us.items():
+            print(f"[skimmer] Sync: importing new playlist '{name}' from device")
+            parsed = parse_m3u8(dev_path)
+            if parsed:
+                app_playlists.append(parsed)
+                changed = True
+
+        if changed:
+            save_playlists(app_playlists)
+            print(f"[skimmer] Sync: playlists synced ({len(app_playlists)} playlists)")
+        else:
+            print("[skimmer] Sync: playlists already up to date")

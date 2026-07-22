@@ -150,6 +150,6 @@ def parse_m3u8(file_path: str) -> Playlist | None:
                         duration=duration,
                     ))
                     extinf = None
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return None
     return Playlist(name=name, tracks=tracks, last_modified=mtime)

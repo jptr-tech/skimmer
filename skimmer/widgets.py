@@ -15,6 +15,11 @@ from gi.repository import Adw, Gtk, Gdk, GLib, Pango, GdkPixbuf
 
 from skimmer.playlist import Playlist, PlaylistTrack, load_playlists, save_playlists
 
+from beets import context as beets_context
+from beets.util import bytestring_path
+
+from gi.repository import Gio
+
 COVER_SIZE = 150
 
 
@@ -39,7 +44,7 @@ def _make_placeholder_pixbuf(size=COVER_SIZE):
 class AlbumCover(Gtk.FlowBoxChild):
     ITEM_EXTRA = 12
 
-    def __init__(self, artist, album, year, cover_path=None, cover_url=None, data=None, size=COVER_SIZE):
+    def __init__(self, artist, album, year, cover_path=None, cover_url=None, data=None, size=COVER_SIZE, on_delete=None):
         super().__init__()
         self.artist = artist
         self.album = album
@@ -47,6 +52,7 @@ class AlbumCover(Gtk.FlowBoxChild):
         self.cover_path = cover_path
         self.cover_url = cover_url
         self.data = data
+        self._on_delete = on_delete
 
         self._cover_size = size
         self._visible = True
@@ -78,8 +84,30 @@ class AlbumCover(Gtk.FlowBoxChild):
 
         self.set_child(box)
 
+        if on_delete:
+            gesture = Gtk.GestureClick()
+            gesture.set_button(3)
+            gesture.connect("pressed", self._on_right_click)
+            self.add_controller(gesture)
+
         self._load_cover()
         self._apply_size()
+
+    def _on_right_click(self, gesture, n_press, x, y):
+        menu = Gtk.PopoverMenu.new_from_model(self._build_delete_menu())
+        menu.set_parent(self)
+        menu.set_position(Gtk.PositionType.BOTTOM)
+        menu.popup()
+
+    def _build_delete_menu(self):
+        model = Gio.Menu.new()
+        model.append("Delete from Library", "cover.delete")
+        action_group = Gio.SimpleActionGroup.new()
+        delete_action = Gio.SimpleAction.new("delete", None)
+        delete_action.connect("activate", lambda a, p: self._on_delete(self.data))
+        action_group.add_action(delete_action)
+        self.insert_action_group("cover", action_group)
+        return model
 
     def _apply_size(self):
         s = self._cover_size
@@ -369,7 +397,8 @@ class AlbumDetail(Gtk.Box):
                  cover_path=None, cover_url=None,
                  on_back=None, on_download=None,
                  album_path=None, on_set_cover=None,
-                 player_bar=None):
+                 player_bar=None, beets_lib=None,
+                 album_obj=None, on_reimport=None, on_delete=None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self.config = config
         self.album_path = album_path
@@ -379,6 +408,10 @@ class AlbumDetail(Gtk.Box):
         self._album = album
         self._on_back_cb = on_back
         self._player_bar = player_bar
+        self._beets_lib = beets_lib
+        self._album_obj = album_obj
+        self._reimport_complete_cb = on_reimport
+        self._delete_cb = on_delete
         self._tracks = sorted(
             tracks,
             key=lambda t: (
@@ -436,19 +469,33 @@ class AlbumDetail(Gtk.Box):
         meta_box.append(year_lbl)
 
         if album_path and on_set_cover is not None:
-            btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-            btn_row.set_margin_top(4)
+            btn_grid = Gtk.Grid()
+            btn_grid.set_column_spacing(6)
+            btn_grid.set_row_spacing(6)
+            btn_grid.set_margin_top(4)
+
             set_cover_btn = Gtk.Button(label="Set Album Art...")
             set_cover_btn.connect("clicked", self._on_set_cover_clicked)
-            btn_row.append(set_cover_btn)
+            btn_grid.attach(set_cover_btn, 0, 0, 1, 1)
 
             search_btn = Gtk.Button(label="Search Online...")
             search_btn.connect("clicked", lambda b: CoverSearchDialog(
                 self.get_root(), self._artist, self._album,
                 self.album_path, self.cover_img, self._on_set_cover,
             ))
-            btn_row.append(search_btn)
-            meta_box.append(btn_row)
+            btn_grid.attach(search_btn, 1, 0, 1, 1)
+
+            if self._beets_lib and self._album_obj:
+                reimport_btn = Gtk.Button(label="Re-import...")
+                reimport_btn.connect("clicked", self._on_reimport)
+                btn_grid.attach(reimport_btn, 0, 1, 1, 1)
+
+                delete_btn = Gtk.Button(label="Delete Album")
+                delete_btn.add_css_class("destructive-action")
+                delete_btn.connect("clicked", lambda b: self._delete_cb(self._album_obj))
+                btn_grid.attach(delete_btn, 1, 1, 1, 1)
+
+            meta_box.append(btn_grid)
 
         if on_download:
             self.dl_btn = Gtk.Button(label="Download Album")
@@ -654,6 +701,25 @@ class AlbumDetail(Gtk.Box):
     def _clear_track_highlight(self):
         self._track_list.unselect_all()
 
+    def _on_reimport(self, btn):
+        if not self._beets_lib or not self._album_obj:
+            return
+        file_paths = [
+            os.fsdecode(item.path)
+            for item in self._album_obj.items()
+            if item.path
+        ]
+        parent = self.get_root() if self.get_root() else None
+        dialog = AlbumImportDialog(
+            parent=parent,
+            config=self.config,
+            file_paths=file_paths,
+            beets_lib=self._beets_lib,
+            album=self._album_obj,
+            on_complete=self._reimport_complete_cb,
+        )
+        dialog.present()
+
     def _on_set_cover_clicked(self, btn):
         parent = self.get_root() if self.get_root() else None
         dialog = Gtk.FileChooserDialog(
@@ -738,3 +804,241 @@ class AlbumDetail(Gtk.Box):
             self.cover_img.set_from_pixbuf(pixbuf)
         except Exception:
             pass
+
+
+class AlbumImportDialog(Gtk.Window):
+    def __init__(self, parent, config, file_paths, beets_lib, album, on_complete=None):
+        super().__init__(title="Re-import: Match MusicBrainz", transient_for=parent, modal=True)
+        self.set_default_size(600, 500)
+        self._config = config
+        self._file_paths = [p for p in file_paths if os.path.isfile(p)]
+        self._beets_lib = beets_lib
+        self._album = album
+        self._on_complete = on_complete
+        self._candidates = []
+        self._selected_match = None
+
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        vbox.set_margin_start(12)
+        vbox.set_margin_end(12)
+        vbox.set_margin_top(12)
+        vbox.set_margin_bottom(12)
+        self.set_child(vbox)
+
+        header_lbl = Gtk.Label(label="Match album metadata from MusicBrainz", css_classes=["title-2"])
+        header_lbl.set_halign(Gtk.Align.START)
+        vbox.append(header_lbl)
+
+        count_lbl = Gtk.Label(label=f"{len(self._file_paths)} files in album")
+        count_lbl.set_halign(Gtk.Align.START)
+        count_lbl.add_css_class("dim-label")
+        vbox.append(count_lbl)
+
+        file_scroll = Gtk.ScrolledWindow()
+        file_scroll.set_max_content_height(120)
+        file_list = Gtk.ListBox()
+        file_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        for fp in self._file_paths:
+            row = Gtk.ListBoxRow()
+            lbl = Gtk.Label(label=os.path.basename(fp), xalign=0)
+            lbl.set_margin_start(6)
+            lbl.set_margin_end(6)
+            lbl.set_margin_top(2)
+            lbl.set_margin_bottom(2)
+            lbl.add_css_class("dim-label")
+            row.set_child(lbl)
+            file_list.append(row)
+        file_scroll.set_child(file_list)
+        vbox.append(file_scroll)
+
+        self._match_btn = Gtk.Button(label="Find MusicBrainz Matches")
+        self._match_btn.add_css_class("suggested-action")
+        self._match_btn.set_halign(Gtk.Align.START)
+        self._match_btn.connect("clicked", self._on_find_matches)
+        vbox.append(self._match_btn)
+
+        self._spinner = Gtk.Spinner()
+        self._spinner.set_visible(False)
+        vbox.append(self._spinner)
+
+        self._status_lbl = Gtk.Label(label="")
+        self._status_lbl.set_halign(Gtk.Align.START)
+        self._status_lbl.add_css_class("dim-label")
+        vbox.append(self._status_lbl)
+
+        candidates_lbl = Gtk.Label(label="Matches:", css_classes=["heading"])
+        candidates_lbl.set_halign(Gtk.Align.START)
+        candidates_lbl.set_visible(False)
+        vbox.append(candidates_lbl)
+        self._candidates_lbl = candidates_lbl
+
+        self._candidates_list = Gtk.ListBox()
+        self._candidates_list.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self._candidates_list.connect("selected-rows-changed", self._on_selection_changed)
+        cand_scroll = Gtk.ScrolledWindow()
+        cand_scroll.set_vexpand(True)
+        cand_scroll.set_child(self._candidates_list)
+        cand_scroll.set_visible(False)
+        vbox.append(cand_scroll)
+        self._candidates_scroll = cand_scroll
+
+        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        btn_box.set_halign(Gtk.Align.END)
+        cancel_btn = Gtk.Button(label="Cancel")
+        cancel_btn.connect("clicked", lambda b: self.close())
+        btn_box.append(cancel_btn)
+
+        self._import_btn = Gtk.Button(label="Re-tag & Save")
+        self._import_btn.add_css_class("suggested-action")
+        self._import_btn.set_sensitive(False)
+        self._import_btn.connect("clicked", self._on_import)
+        btn_box.append(self._import_btn)
+        vbox.append(btn_box)
+
+        self.present()
+
+    def _on_find_matches(self, btn):
+        btn.set_sensitive(False)
+        self._spinner.set_visible(True)
+        self._spinner.start()
+        self._status_lbl.set_text("Reading files and searching MusicBrainz...")
+        self._candidates_list.remove_all()
+        self._candidates = []
+        self._selected_match = None
+        self._import_btn.set_sensitive(False)
+        threading.Thread(target=self._search_thread, daemon=True).start()
+
+    def _search_thread(self):
+        try:
+            import beets.plugins
+            beets.plugins.load_plugins()
+            from beets import library as beets_lib_mod
+            from beets.autotag.match import tag_album
+            beets_context.set_music_dir(bytestring_path(
+                os.path.expanduser(self._config.get("music_dir", "~/Music"))
+            ))
+            items = [beets_lib_mod.Item.from_path(p) for p in self._file_paths]
+            album_artist = getattr(self._album, "albumartist", None) or ""
+            album_name = getattr(self._album, "album", None) or ""
+            print(f"[skimmer] reimport: searching MusicBrainz for {album_artist!r} - {album_name!r}")
+            _, _, proposal = tag_album(items, search_artist=album_artist, search_name=album_name)
+            count = len(proposal.candidates) if proposal else 0
+            print(f"[skimmer] reimport: found {count} candidates")
+            GLib.idle_add(self._on_candidates, proposal.candidates if proposal else [])
+        except Exception as e:
+            print(f"[skimmer] reimport: search error: {e}")
+            GLib.idle_add(self._on_search_error, str(e))
+
+    def _on_search_error(self, msg):
+        self._spinner.stop()
+        self._spinner.set_visible(False)
+        self._match_btn.set_sensitive(True)
+        self._status_lbl.set_text(f"Search failed: {msg}")
+
+    def _on_candidates(self, candidates):
+        self._spinner.stop()
+        self._spinner.set_visible(False)
+        self._match_btn.set_sensitive(True)
+        if not candidates:
+            self._status_lbl.set_text("No MusicBrainz matches found. Try selecting different files.")
+            return
+        self._candidates = list(candidates)
+        self._candidates_lbl.set_visible(True)
+        self._candidates_scroll.set_visible(True)
+        self._candidates_list.remove_all()
+        first_radio = None
+        for i, match in enumerate(candidates):
+            info = match.info
+            artist = getattr(info, "artist", "?") or "?"
+            album = getattr(info, "album", "?") or "?"
+            year = getattr(info, "year", "")
+            ntracks = len(getattr(info, "tracks", []) or [])
+            year_str = f" ({year})" if year else ""
+            label_text = f"{artist}  —  {album}{year_str}  ({ntracks} tracks)"
+            row = Gtk.ListBoxRow()
+            hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            hbox.set_margin_start(6)
+            hbox.set_margin_end(6)
+            hbox.set_margin_top(6)
+            hbox.set_margin_bottom(6)
+            radio = Gtk.CheckButton()
+            if first_radio:
+                radio.set_group(first_radio)
+            else:
+                first_radio = radio
+            radio.set_active(i == 0)
+            hbox.append(radio)
+            lbl = Gtk.Label(label=label_text, xalign=0)
+            lbl.set_hexpand(True)
+            hbox.append(lbl)
+            row.set_child(hbox)
+            row._radio = radio
+            self._candidates_list.append(row)
+        self._candidates_list.select_row(self._candidates_list.get_row_at_index(0))
+        self._selected_match = candidates[0]
+        self._import_btn.set_sensitive(True)
+        self._status_lbl.set_text(f"Found {len(candidates)} candidate{'' if len(candidates) == 1 else 's'}")
+
+    def _on_selection_changed(self, listbox):
+        rows = listbox.get_selected_rows()
+        if not rows:
+            return
+        row = rows[0]
+        idx = row.get_index()
+        if 0 <= idx < len(self._candidates):
+            self._selected_match = self._candidates[idx]
+            for i in range(len(self._candidates)):
+                r = listbox.get_row_at_index(i)
+                if hasattr(r, "_radio"):
+                    r._radio.set_active(r == row)
+            self._import_btn.set_sensitive(True)
+
+    def _on_import(self, btn):
+        if not self._selected_match:
+            return
+        btn.set_sensitive(False)
+        self._match_btn.set_sensitive(False)
+        self._status_lbl.set_text("Applying metadata and updating beets...")
+        self._spinner.set_visible(True)
+        self._spinner.start()
+        threading.Thread(target=self._import_thread, daemon=True).start()
+
+    def _import_thread(self):
+        try:
+            match = self._selected_match
+            match.apply_metadata()
+            for item in match.mapping:
+                item.try_write()
+            music_dir = os.path.expanduser(self._config.get("music_dir", "~/Music"))
+            for db_item in self._album.items():
+                try:
+                    fpath = os.fsdecode(db_item.path)
+                    if not os.path.isabs(fpath):
+                        fpath = os.path.join(music_dir, fpath)
+                    db_item.read(fpath)
+                    db_item.store()
+                except Exception as e:
+                    print(f"[skimmer] reimport: error updating item: {e}")
+            try:
+                self._album.albumartist = match.info.artist
+                self._album.album = match.info.album
+                self._album.store()
+            except Exception:
+                pass
+            GLib.idle_add(self._on_import_done, None)
+        except Exception as e:
+            GLib.idle_add(self._on_import_done, str(e))
+
+    def _on_import_done(self, error):
+        self._spinner.stop()
+        self._spinner.set_visible(False)
+        if error:
+            self._status_lbl.set_text(f"Import failed: {error}")
+            self._match_btn.set_sensitive(True)
+            return
+        self._status_lbl.set_text("Metadata updated successfully!")
+        cb = self._on_complete
+        self._on_complete = None
+        if cb:
+            cb()
+        GLib.timeout_add(800, self.close)

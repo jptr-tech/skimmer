@@ -14,8 +14,6 @@ from beets.util import bytestring_path
 
 from skimmer.widgets import AlbumCover, AlbumDetail, find_cover, COVER_SIZE
 
-from skimmer.widgets import AlbumCover, AlbumDetail, find_cover, COVER_SIZE
-
 
 class LibraryPage(Gtk.Box):
     def __init__(self, config, player_bar=None):
@@ -166,6 +164,7 @@ class LibraryPage(Gtk.Box):
                 cover_path=cover_path,
                 data=album,
                 size=self._cover_size,
+                on_delete=self._on_delete_album if self._beets_lib else None,
             )
             self._cover_widgets.append(cover)
 
@@ -206,11 +205,7 @@ class LibraryPage(Gtk.Box):
         album_obj = cover.data
         tracks = []
         try:
-            query = [
-                f"albumartist:{cover.artist}",
-                f"album:{cover.album}",
-            ]
-            for item in self._beets_lib.items(query):
+            for item in album_obj.items():
                 tracks.append(
                     {
                         "track": str(item.track or ""),
@@ -226,6 +221,9 @@ class LibraryPage(Gtk.Box):
             os.fsdecode(album_obj.path) if album_obj and album_obj.path else None
         )
 
+        def reimport_cb():
+            self._refresh()
+
         detail = AlbumDetail(
             config=self.config,
             artist=cover.artist,
@@ -237,6 +235,10 @@ class LibraryPage(Gtk.Box):
             album_path=album_path,
             on_set_cover=lambda _path: self._refresh_covers(),
             player_bar=self._player_bar,
+            beets_lib=self._beets_lib,
+            album_obj=album_obj,
+            on_reimport=reimport_cb,
+            on_delete=self._on_delete_album,
         )
         detail.set_vexpand(True)
         name = f"detail-{cover.artist}-{cover.album}"
@@ -244,6 +246,32 @@ class LibraryPage(Gtk.Box):
             self.stack.remove(self.stack.get_child_by_name(name))
         self.stack.add_named(detail, name)
         self.stack.set_visible_child(detail)
+
+    def _on_delete_album(self, album):
+        name = getattr(album, "album", "Unknown")
+        dialog = Adw.AlertDialog()
+        dialog.set_heading("Delete Album")
+        dialog.set_body(f"Remove '{name}' from the beets library and delete audio files from disk?")
+        dialog.add_response("cancel", "_Cancel")
+        dialog.add_response("delete", "_Delete")
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+
+        def on_response(d, response):
+            if response == "delete":
+                try:
+                    album.remove(delete=True)
+                    self._refresh()
+                except Exception as e:
+                    err_dialog = Adw.AlertDialog()
+                    err_dialog.set_heading("Delete Failed")
+                    err_dialog.set_body(str(e))
+                    err_dialog.add_response("ok", "_OK")
+                    err_dialog.present(self.get_root())
+
+        dialog.connect("response", on_response)
+        dialog.present(self.get_root())
 
     def _on_key_pressed(self, controller, keyval, keycode, state):
         ctrl = state & Gdk.ModifierType.CONTROL_MASK

@@ -390,10 +390,13 @@ class ProcessingManager(GObject.Object):
         device_m3us = {}
         if os.path.isdir(playlist_dir):
             for fname in os.listdir(playlist_dir):
-                if fname.endswith(".m3u8") or fname.endswith(".m3u"):
-                    name = os.path.splitext(fname)[0]
-                    fpath = os.path.join(playlist_dir, fname)
-                    device_m3us[name] = (fpath, os.path.getmtime(fpath))
+                if not (fname.endswith(".m3u8") or fname.endswith(".m3u")):
+                    continue
+                if fname.startswith("._"):
+                    continue
+                name = os.path.splitext(fname)[0]
+                fpath = os.path.join(playlist_dir, fname)
+                device_m3us[name] = (fpath, os.path.getmtime(fpath))
 
         changed = False
         for name, pl in list(app_by_name.items()):

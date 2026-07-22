@@ -4,27 +4,31 @@ version = "0.1.0"
 description = "GTK4 music manager for the Innioasis Y1"
 requires-python = ">=3.11"
 dependencies = [
-    "PyGObject>=3.42.0",
-    "ytmusicapi>=1.0.0",
-    "yt-dlp>=2023.0.0",
-    "beets>=2.0.0",
-    "mpris-server>=0.8.1",
-    "platformdirs>=4.0.0",
+  "PyGObject>=3.42.0",
+  "ytmusicapi>=1.0.0",
+  "yt-dlp>=2023.0.0",
+  "beets>=2.0.0",
+  "mpris-server>=0.8.1",
+  "platformdirs>=4.0.0",
 ]
 
 [project.scripts]
 skimmer = "skimmer.__main__:main"
 
 [project.optional-dependencies]
-dev = [
-    "pytest>=7.0",
-]
+dev = ["pytest>=7.0"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
+[tool.setuptools.packages.find]
+include = ["skimmer*"]
+
 [dependency-groups]
-dev = ["pytest>=7.0"]
+dev = [
+    "pyinstaller>=6.21.0",
+    "pytest>=7.0",
+]
 
 [tool.uv]
 package = true

@@ -36,16 +36,33 @@ device can easily get and sync music.
 
 ## Build from source
 
-```bash
-uv sync
-uv run skimmer
-```
-
-## Flatpak
+### Linux (Flatpak)
 
 ```bash
 flatpak-builder --user --install --force-clean build-dir build-aux/flatpak/tech.jptr.Skimmer.yml
 flatpak run tech.jptr.Skimmer
+```
+
+### macOS (Homebrew)
+
+PyGObject requires GLib available at runtime via `dlopen`. On ARM macOS, uv's
+managed Python doesn't set the `LC_RPATH` needed to find Homebrew's libraries,
+so use Homebrew's Python when creating the virtual environment.
+
+```bash
+brew install python@3.14 gtk4 libadwaita gstreamer gst-plugins-base \
+  gst-plugins-good gobject-introspection pango graphene pygobject3 glib \
+  meson ninja
+uv venv --python /opt/homebrew/bin/python3.14
+uv sync
+uv run skimmer
+```
+
+### Generic
+
+```bash
+uv sync
+uv run skimmer
 ```
 
 ## Updating dependencies

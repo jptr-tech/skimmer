@@ -1,11 +1,13 @@
 import os
+import sys
 import threading
 
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gtk, GLib, Adw, Gdk, Gio
+gi.require_version("GdkPixbuf", "2.0")
+from gi.repository import Gtk, GLib, Adw, Gdk, GdkPixbuf, Gio
 
 from skimmer.config import load_config, save_config
 from skimmer.worker import ProcessingManager, Task
@@ -28,7 +30,12 @@ class SkimmerApp(Adw.Application):
         self.proc_mgr = ProcessingManager(self.config)
         self.scanner = BackgroundScanner(self.config)
         self.connect("activate", self._on_activate)
-        Gtk.Window.set_default_icon_name("tech.jptr.Skimmer")
+        icon_path = os.path.join(os.path.dirname(__file__), "data", "tech.jptr.Skimmer.png")
+        try:
+            pixbuf = GdkPixbuf.Pixbuf.new_from_file(icon_path)
+            Gtk.Window.set_default_icon_list([pixbuf])
+        except Exception:
+            pass
         self._last_connected = False
         self._sync_task = None
         self._auto_sync_timer = None
@@ -97,8 +104,7 @@ class SkimmerApp(Adw.Application):
 
         sync_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
 
-        self.sync_icon = Gtk.Image.new_from_icon_name("drive-harddisk-usb-symbolic")
-        self.sync_icon.set_pixel_size(16)
+        self.sync_icon = Gtk.Label(label="\U0001f50c")
         sync_box.append(self.sync_icon)
 
         self.sync_label = Gtk.Label(label="")
@@ -149,17 +155,44 @@ class SkimmerApp(Adw.Application):
     def _on_mount_changed(self, *args):
         self._check_mount()
 
+    @staticmethod
+    def _get_platform_mount_roots():
+        if sys.platform == "darwin":
+            return ["/Volumes"]
+        return ["/run/media", "/media"]
+
+    @staticmethod
+    def _path_matches_device(path):
+        name = os.path.basename(path).lower()
+        if "y1" in name or "innioasis" in name:
+            return True
+        if os.path.isdir(os.path.join(path, "Music")):
+            return True
+        return False
+
     def _detect_y1_mount(self):
         for mount in Gio.VolumeMonitor.get().get_mounts():
             path = mount.get_root().get_path()
-            if not path or not path.startswith("/run/media/"):
+            if not path:
                 continue
             vol = mount.get_volume()
             name = vol.get_name().lower() if vol else ""
             if "y1" in name or "innioasis" in name:
                 return path
-            if os.path.isdir(os.path.join(path, "Music")):
+            if self._path_matches_device(path):
                 return path
+        for root in self._get_platform_mount_roots():
+            if not os.path.isdir(root):
+                continue
+            try:
+                for name in os.listdir(root):
+                    path = os.path.join(root, name)
+                    if not os.path.isdir(path):
+                        continue
+                    if self._path_matches_device(path):
+                        return path
+            except PermissionError:
+                continue
         return None
 
     def _check_mount(self):
@@ -174,28 +207,26 @@ class SkimmerApp(Adw.Application):
 
         mounts = [m.get_root().get_path() for m in Gio.VolumeMonitor.get().get_mounts()]
         connected = mount_path in mounts
+        if not connected and mount_path and os.path.isdir(mount_path):
+            print(f"[skimmer] _check_mount: {mount_path!r} exists on disk — treating as connected")
+            connected = True
 
         print(f"[skimmer] _check_mount: mount_path={mount_path!r}")
         print(f"[skimmer] _check_mount: Gio mounts={mounts}")
-        print(f"[skimmer] _check_mount: Gio connected={connected}")
-        if not connected and mount_path and os.path.isdir(mount_path):
-            print(f"[skimmer] _check_mount: DIR EXISTS on disk but not in Gio mounts!")
-            print(f"[skimmer] _check_mount: realpath={os.path.realpath(mount_path)!r}")
+        print(f"[skimmer] _check_mount: connected={connected}")
 
         if connected:
             self.scan_btn.set_visible(False)
-            self.sync_icon.set_from_icon_name("drive-harddisk-usb-symbolic")
             self.sync_btn.set_visible(True)
             self.eject_btn.set_visible(True)
             if self._sync_task is None:
-                self.sync_label.set_text("Device connected")
+                self.sync_label.set_text("Connected")
                 if not self._last_connected:
                     if self._auto_sync_timer is not None:
                         GLib.source_remove(self._auto_sync_timer)
                     self._auto_sync_timer = GLib.timeout_add_seconds(5, self._do_sync)
         else:
             self.scan_btn.set_visible(True)
-            self.sync_icon.set_from_icon_name("drive-harddisk-usb-symbolic")
             self.sync_label.set_text("")
             self.sync_btn.set_visible(False)
             self.eject_btn.set_visible(False)
@@ -222,11 +253,11 @@ class SkimmerApp(Adw.Application):
         if status == "running":
             self.sync_label.set_text(message or "Syncing...")
         elif status == "completed":
-            self.sync_label.set_text("Sync complete")
+            self.sync_label.set_text("Synced")
             self.sync_spinner.stop()
             self.sync_spinner.set_visible(False)
             self._sync_task = None
-            GLib.timeout_add_seconds(3, self._reset_sync_ui)
+            GLib.timeout_add_seconds(1, self._reset_sync_ui)
         elif status == "failed":
             self.sync_label.set_text("Sync failed")
             self.sync_spinner.stop()
@@ -236,7 +267,7 @@ class SkimmerApp(Adw.Application):
             self._sync_task = None
 
     def _reset_sync_ui(self):
-        self.sync_label.set_text("Device connected")
+        self.sync_label.set_text("")
         self.sync_btn.set_sensitive(True)
         self.eject_btn.set_sensitive(True)
         return GLib.SOURCE_REMOVE
@@ -255,6 +286,12 @@ class SkimmerApp(Adw.Application):
                     mount.unmount(Gio.MountUnmountFlags.NONE, None)
                     GLib.idle_add(self._on_eject_done, None)
                     return
+            if sys.platform == "darwin":
+                import subprocess
+                vol_name = os.path.basename(mount_path)
+                subprocess.run(["diskutil", "eject", vol_name], capture_output=True)
+                GLib.idle_add(self._on_eject_done, None)
+                return
             GLib.idle_add(self._on_eject_done, f"Mount not found: {mount_path}")
         except Exception as e:
             GLib.idle_add(self._on_eject_done, str(e))

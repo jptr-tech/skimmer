@@ -6,15 +6,18 @@ import time
 
 def _walk(music_dir):
     result = {}
-    for root, dirs, files in os.walk(music_dir):
-        for f in files:
-            path = os.path.join(root, f)
-            rel = os.path.relpath(path, music_dir)
-            try:
-                st = os.stat(path)
-                result[rel] = (int(st.st_mtime), st.st_size)
-            except OSError:
-                pass
+    try:
+        for root, dirs, files in os.walk(music_dir):
+            for f in files:
+                try:
+                    path = os.path.join(root, f)
+                    rel = os.path.relpath(path, music_dir)
+                    st = os.stat(path)
+                    result[rel] = (int(st.st_mtime), st.st_size)
+                except (OSError, UnicodeDecodeError, UnicodeEncodeError):
+                    pass
+    except (UnicodeDecodeError, UnicodeEncodeError):
+        pass
     return result
 
 
@@ -28,27 +31,34 @@ def _quick_hash(path):
 
 def load_cache(cache_path, music_dir):
     try:
-        with open(cache_path) as f:
+        with open(cache_path, "r", encoding="utf-8") as f:
             data = json.load(f)
         if data.get("music_dir") == music_dir:
             files = data["files"]
             for k, v in files.items():
                 files[k] = (int(v[0]), v[1], v[2] if len(v) > 2 else None)
             return files
-    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+    except (FileNotFoundError, json.JSONDecodeError, KeyError, UnicodeDecodeError):
         pass
     return None
 
 
 def save_cache(cache_path, music_dir, files):
     os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+    clean_files = {}
+    for k, v in files.items():
+        try:
+            clean_k = k.encode("utf-8", errors="replace").decode("utf-8")
+            clean_files[clean_k] = v
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            continue
     data = {
         "music_dir": music_dir,
-        "files": files,
+        "files": clean_files,
         "last_synced": time.time(),
     }
     tmp = cache_path + ".tmp"
-    with open(tmp, "w") as f:
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f)
     os.replace(tmp, cache_path)
 

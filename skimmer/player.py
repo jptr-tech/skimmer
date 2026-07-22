@@ -72,8 +72,7 @@ class PlayerBar(Gtk.Box):
         mid = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         mid.set_hexpand(True)
 
-        self.prev_btn = Gtk.Button()
-        self.prev_btn.set_icon_name("media-skip-backward-symbolic")
+        self.prev_btn = Gtk.Button(label="\u23ee")
         self.prev_btn.add_css_class("flat")
         self.prev_btn.set_tooltip_text("Previous")
         self.prev_btn.connect("clicked", self._on_prev)
@@ -86,8 +85,7 @@ class PlayerBar(Gtk.Box):
         self.play_btn.connect("clicked", self._on_play_pause)
         mid.append(self.play_btn)
 
-        self.next_btn = Gtk.Button()
-        self.next_btn.set_icon_name("media-skip-forward-symbolic")
+        self.next_btn = Gtk.Button(label="\u23ed")
         self.next_btn.add_css_class("flat")
         self.next_btn.set_tooltip_text("Next")
         self.next_btn.connect("clicked", self._on_next)
@@ -104,6 +102,9 @@ class PlayerBar(Gtk.Box):
         self.progress.set_size_request(200, -1)
         self.progress.connect("change-value", self._on_seek)
         self.progress.set_sensitive(False)
+        seek_gesture = Gtk.GestureClick()
+        seek_gesture.connect("pressed", self._on_progress_clicked)
+        self.progress.add_controller(seek_gesture)
         mid.append(self.progress)
 
         self.time_total = Gtk.Label(label="0:00")
@@ -126,10 +127,13 @@ class PlayerBar(Gtk.Box):
         end.append(vol_icon)
 
         self.volume = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1)
-        self.volume.set_value(50)
+        self.volume.set_value(100)
         self.volume.set_draw_value(False)
         self.volume.set_size_request(100, -1)
         self.volume.connect("change-value", self._on_volume)
+        vol_gesture = Gtk.GestureClick()
+        vol_gesture.connect("pressed", self._on_volume_clicked)
+        self.volume.add_controller(vol_gesture)
         end.append(self.volume)
 
         center_box.set_end_widget(end)
@@ -252,6 +256,24 @@ class PlayerBar(Gtk.Box):
 
     def _on_volume(self, scale, scroll, value):
         self._pipeline.set_property("volume", value / 100)
+
+    def _on_progress_clicked(self, gesture, n_press, x, y):
+        widget = gesture.get_widget()
+        width = widget.get_width()
+        if width > 0:
+            fraction = max(0, min(1, x / width))
+            value = fraction * 100
+            widget.set_value(value)
+            self._on_seek(widget, Gtk.ScrollType.JUMP, value)
+
+    def _on_volume_clicked(self, gesture, n_press, x, y):
+        widget = gesture.get_widget()
+        width = widget.get_width()
+        if width > 0:
+            fraction = max(0, min(1, x / width))
+            value = fraction * 100
+            widget.set_value(value)
+            self._on_volume(widget, Gtk.ScrollType.JUMP, value)
 
     def _update_position(self):
         if not self._playing:

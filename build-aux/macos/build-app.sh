@@ -69,6 +69,7 @@ PYINST_ARGS+=(
     --collect-data gi
     --collect-submodules gi
     --collect-data ytmusicapi
+    --collect-data beets
     --hidden-import gi
     --hidden-import gi.repository
     --hidden-import gi.repository.Gtk

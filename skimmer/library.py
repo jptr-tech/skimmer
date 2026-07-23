@@ -14,6 +14,9 @@ from beets.util import bytestring_path
 
 from skimmer.widgets import AlbumCover, AlbumDetail, find_cover, COVER_SIZE
 
+import logging
+log = logging.getLogger(__name__)
+
 
 class LibraryPage(Gtk.Box):
     def __init__(self, config, player_bar=None):
@@ -84,7 +87,7 @@ class LibraryPage(Gtk.Box):
     def _fetch_missing_covers(self):
         if not self._beets_lib:
             return
-        print(f"[skimmer] Fetching missing album art...")
+        log.info(f"[skimmer] Fetching missing album art...")
         GLib.idle_add(self.status_label.set_text, "Fetching missing album art...")
         try:
             music_dir = os.path.expanduser(
@@ -95,12 +98,12 @@ class LibraryPage(Gtk.Box):
             fa = FetchArtPlugin()
             albums = list(self._beets_lib.albums())
             fa.batch_fetch_art(self._beets_lib, albums, force=False, quiet=True)
-            print(f"[skimmer] fetchart done: checked {len(albums)} albums")
+            log.info(f"[skimmer] fetchart done: checked {len(albums)} albums")
             GLib.idle_add(
                 self.status_label.set_text, f"fetchart: checked {len(albums)} albums"
             )
         except Exception as e:
-            print(f"[skimmer] fetchart error: {e}")
+            log.warning(f"[skimmer] fetchart error: {e}")
             GLib.idle_add(self.status_label.set_text, f"fetchart: {e}")
         GLib.idle_add(self._refresh)
 
@@ -113,9 +116,9 @@ class LibraryPage(Gtk.Box):
         try:
             beets_context.set_music_dir(bytestring_path(music_dir))
             self._beets_lib = Library(lib_path, directory=music_dir)
-            print(f"[skimmer] Opened beets library at {lib_path}")
+            log.info(f"[skimmer] Opened beets library at {lib_path}")
         except Exception as e:
-            print(f"[skimmer] Failed to open beets library at {lib_path}: {e}")
+            log.info(f"[skimmer] Failed to open beets library at {lib_path}: {e}")
 
     def _refresh(self, *args):
         self.flowbox.remove_all()

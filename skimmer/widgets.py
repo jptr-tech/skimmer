@@ -20,6 +20,9 @@ from beets.util import bytestring_path
 
 from gi.repository import Gio
 
+import logging
+log = logging.getLogger(__name__)
+
 COVER_SIZE = 150
 
 
@@ -239,7 +242,7 @@ class CoverSearchDialog(Gtk.Window):
         self.cover_pic = cover_pic
         self._on_set_cover = on_set_cover
 
-        print(f"[skimmer] Opening cover search dialog for {artist} - {album}")
+        log.info(f"[skimmer] Opening cover search dialog for {artist} - {album}")
 
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         vbox.set_margin_start(12)
@@ -285,7 +288,7 @@ class CoverSearchDialog(Gtk.Window):
             return
         self.flowbox.remove_all()
         self.status_lbl.set_text("Searching iTunes + Deezer...")
-        print(f"[skimmer] Cover search: '{term}'")
+        log.info(f"[skimmer] Cover search: '{term}'")
         threading.Thread(target=self._search_thread, args=(term,), daemon=True).start()
 
     def _search_thread(self, term):
@@ -304,7 +307,7 @@ class CoverSearchDialog(Gtk.Window):
                 if full and key not in combined:
                     combined[key] = (r.get("collectionName", "?"), r.get("artistName", "?"), thumb, full, "iTunes")
         except Exception as e:
-            print(f"[skimmer] iTunes search error: {e}")
+            log.warning(f"[skimmer] iTunes search error: {e}")
 
         # Deezer
         try:
@@ -318,25 +321,25 @@ class CoverSearchDialog(Gtk.Window):
                 if full and key not in combined:
                     combined[key] = (r.get("title", "?"), r.get("artist", {}).get("name", "?"), thumb, full, "Deezer")
         except Exception as e:
-            print(f"[skimmer] Deezer search error: {e}")
+            log.warning(f"[skimmer] Deezer search error: {e}")
 
         GLib.idle_add(self._show_results, list(combined.values()))
 
     def _show_error(self, msg):
-        print(f"[skimmer] Cover search error displayed: {msg}")
+        log.warning(f"[skimmer] Cover search error displayed: {msg}")
         self.status_lbl.set_text(msg)
 
     def _show_results(self, results):
         if not results:
             self.status_lbl.set_text("No results found")
-            print("[skimmer] Cover search: 0 results")
+            log.info("[skimmer] Cover search: 0 results")
             return
         source_counts = {}
         for _, _, _, _, src in results:
             source_counts[src] = source_counts.get(src, 0) + 1
         summary = ", ".join(f"{src}: {n}" for src, n in source_counts.items())
         self.status_lbl.set_text(f"{len(results)} results ({summary})")
-        print(f"[skimmer] Cover search: {len(results)} results ({summary})")
+        log.info(f"[skimmer] Cover search: {len(results)} results ({summary})")
         for title, artist, thumb_url, full_url, source in results:
             label = f"[{source}] {title}"
             result_widget = CoverSearchResult(
@@ -347,17 +350,17 @@ class CoverSearchDialog(Gtk.Window):
 
     def _on_result_selected(self, result):
         url = result.get_full_url()
-        print(f"[skimmer] Cover selected: {url}")
+        log.info(f"[skimmer] Cover selected: {url}")
         self.status_lbl.set_text("Downloading cover...")
         threading.Thread(target=self._download_thread, args=(url,), daemon=True).start()
 
     def _download_thread(self, url):
-        print(f"[skimmer] Downloading cover from {url}")
+        log.info(f"[skimmer] Downloading cover from {url}")
         try:
             data = urllib.request.urlopen(url, timeout=15).read()
-            print(f"[skimmer] Downloaded {len(data)} bytes")
+            log.info(f"[skimmer] Downloaded {len(data)} bytes")
         except Exception as e:
-            print(f"[skimmer] Download failed: {e}")
+            log.warning(f"[skimmer] Download failed: {e}")
             GLib.idle_add(self.status_lbl.set_text, f"Download failed: {e}")
             return
 
@@ -373,7 +376,7 @@ class CoverSearchDialog(Gtk.Window):
                 loader.close()
                 loader.get_pixbuf()
             except Exception:
-                print(f"[skimmer] Invalid image data")
+                log.info(f"[skimmer] Invalid image data")
                 GLib.idle_add(self.status_lbl.set_text, "Invalid image data")
                 return
 
@@ -584,16 +587,16 @@ class AlbumDetail(Gtk.Box):
                 btn.add_css_class("flat")
 
                 def toggle(b, pl=pl):
-                    print(f"[skimmer] toggle {pl.name}: fp={file_path!r}")
+                    log.info(f"[skimmer] toggle {pl.name}: fp={file_path!r}")
                     if not file_path:
-                        print("[skimmer] toggle: no file_path, skipping")
+                        log.info("[skimmer] toggle: no file_path, skipping")
                         return
                     existing = [t for t in pl.tracks if t.file_path == file_path]
                     if existing:
-                        print(f"[skimmer] toggle: removing track from '{pl.name}'")
+                        log.info(f"[skimmer] toggle: removing track from '{pl.name}'")
                         pl.tracks[:] = [t for t in pl.tracks if t.file_path != file_path]
                     else:
-                        print(f"[skimmer] toggle: adding track to '{pl.name}'")
+                        log.info(f"[skimmer] toggle: adding track to '{pl.name}'")
                         pl.tracks.append(PlaylistTrack(
                             file_path=file_path, title=track_title,
                             artist=track_artist, album=self._album,
@@ -758,7 +761,7 @@ class AlbumDetail(Gtk.Box):
                     if self._on_set_cover:
                         self._on_set_cover(dst)
                 except Exception as e:
-                    print(f"[skimmer] Failed to set cover: {e}")
+                    log.info(f"[skimmer] Failed to set cover: {e}")
             return
         dialog.destroy()
 
@@ -920,13 +923,13 @@ class AlbumImportDialog(Gtk.Window):
             items = [beets_lib_mod.Item.from_path(p) for p in self._file_paths]
             album_artist = getattr(self._album, "albumartist", None) or ""
             album_name = getattr(self._album, "album", None) or ""
-            print(f"[skimmer] reimport: searching MusicBrainz for {album_artist!r} - {album_name!r}")
+            log.info(f"[skimmer] reimport: searching MusicBrainz for {album_artist!r} - {album_name!r}")
             _, _, proposal = tag_album(items, search_artist=album_artist, search_name=album_name)
             count = len(proposal.candidates) if proposal else 0
-            print(f"[skimmer] reimport: found {count} candidates")
+            log.info(f"[skimmer] reimport: found {count} candidates")
             GLib.idle_add(self._on_candidates, proposal.candidates if proposal else [])
         except Exception as e:
-            print(f"[skimmer] reimport: search error: {e}")
+            log.warning(f"[skimmer] reimport: search error: {e}")
             GLib.idle_add(self._on_search_error, str(e))
 
     def _on_search_error(self, msg):
@@ -1018,7 +1021,7 @@ class AlbumImportDialog(Gtk.Window):
                     db_item.read(fpath)
                     db_item.store()
                 except Exception as e:
-                    print(f"[skimmer] reimport: error updating item: {e}")
+                    log.warning(f"[skimmer] reimport: error updating item: {e}")
             try:
                 self._album.albumartist = match.info.artist
                 self._album.album = match.info.album

@@ -20,6 +20,9 @@ from skimmer.player import PlayerBar
 from skimmer.playlists_ui import PlaylistsPage
 from skimmer.media_integration import create_integration
 
+import logging
+log = logging.getLogger(__name__)
+
 
 class SkimmerApp(Adw.Application):
     def __init__(self):
@@ -203,17 +206,17 @@ class SkimmerApp(Adw.Application):
                 mount_path = detected
                 self.config["mount_path"] = detected
                 save_config(self.config)
-                print(f"[skimmer] Auto-detected Y1 at {detected}")
+                log.info(f"[skimmer] Auto-detected Y1 at {detected}")
 
         mounts = [m.get_root().get_path() for m in Gio.VolumeMonitor.get().get_mounts()]
         connected = mount_path in mounts
         if not connected and mount_path and os.path.isdir(mount_path):
-            print(f"[skimmer] _check_mount: {mount_path!r} exists on disk — treating as connected")
+            log.info(f"[skimmer] _check_mount: {mount_path!r} exists on disk — treating as connected")
             connected = True
 
-        print(f"[skimmer] _check_mount: mount_path={mount_path!r}")
-        print(f"[skimmer] _check_mount: Gio mounts={mounts}")
-        print(f"[skimmer] _check_mount: connected={connected}")
+        log.info(f"[skimmer] _check_mount: mount_path={mount_path!r}")
+        log.info(f"[skimmer] _check_mount: Gio mounts={mounts}")
+        log.info(f"[skimmer] _check_mount: connected={connected}")
 
         if connected:
             self.scan_btn.set_visible(False)

@@ -15,6 +15,9 @@ from beets import context as beets_context
 from beets.library import Library
 from beets.util import bytestring_path
 
+import logging
+log = logging.getLogger(__name__)
+
 from skimmer.playlist import (
     Playlist,
     PlaylistTrack,
@@ -622,7 +625,7 @@ class PlaylistsPage(Gtk.Box):
                 self._build_detail_for(self._detail_playlist_index)
                 self._rebuild_grid()
             except Exception as e:
-                print(f"[skimmer] Failed to set cover: {e}")
+                log.info(f"[skimmer] Failed to set cover: {e}")
 
         dialog.connect("response", on_response)
         dialog.present()

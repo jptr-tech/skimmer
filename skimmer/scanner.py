@@ -3,6 +3,9 @@ import threading
 
 from skimmer import synccache
 
+import logging
+log = logging.getLogger(__name__)
+
 
 # This class exists to keep the indexes are in sync by periodically walking
 # both locally & on the connected device.
@@ -33,21 +36,21 @@ class BackgroundScanner:
         self._load_local_cache()
         loaded = self._local_cache is not None
         nfiles = len(self._local_cache) if self._local_cache else 0
-        print(
+        log.info(
             f"[skimmer] Scanner: local cache at {self._local_cache_path}"
             f"{' loaded (' + str(nfiles) + ' files)' if loaded else ' — no existing cache'}"
         )
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
-        print(f"[skimmer] Scanner: thread started")
+        log.info(f"[skimmer] Scanner: thread started")
 
     def stop(self):
-        print(f"[skimmer] Scanner: stopping")
+        log.info(f"[skimmer] Scanner: stopping")
         self._stop_event.set()
         self._wake_event.set()
 
     def scan_now(self):
-        print(f"[skimmer] Scanner: manual scan triggered")
+        log.info(f"[skimmer] Scanner: manual scan triggered")
         self._wake_event.set()
 
     def get_local_cache(self):
@@ -60,16 +63,16 @@ class BackgroundScanner:
             self._local_cache = cached
 
     def _run(self):
-        print(f"[skimmer] Scanner: initial scan starting")
+        log.info(f"[skimmer] Scanner: initial scan starting")
         self._scan()
         while not self._stop_event.is_set():
             interval = max(10, self.config.get("scan_interval", 1800))
-            print(f"[skimmer] Scanner: next scan in {interval}s")
+            log.info(f"[skimmer] Scanner: next scan in {interval}s")
             self._wake_event.wait(timeout=interval)
             self._wake_event.clear()
             if self._stop_event.is_set():
                 break
-            print(f"[skimmer] Scanner: periodic scan starting")
+            log.info(f"[skimmer] Scanner: periodic scan starting")
             self._scan()
 
     def _scan(self):
@@ -88,16 +91,16 @@ class BackgroundScanner:
     def _scan_local(self):
         music_dir = self.config["music_dir"]
         if not os.path.isdir(music_dir):
-            print(f"[skimmer] Scanner: local music_dir not found: {music_dir}")
+            log.info(f"[skimmer] Scanner: local music_dir not found: {music_dir}")
             return 0
 
-        print(f"[skimmer] Scanner: walking local {music_dir}")
+        log.info(f"[skimmer] Scanner: walking local {music_dir}")
         if self._on_status:
             self._on_status("Scanning local library...")
 
         current = synccache._walk(music_dir)
         total = len(current)
-        print(f"[skimmer] Scanner: local — found {total} files")
+        log.info(f"[skimmer] Scanner: local — found {total} files")
 
         with self._lock:
             old_cache = dict(self._local_cache) if self._local_cache else {}
@@ -131,7 +134,7 @@ class BackgroundScanner:
         deleted = len(old_cache) - len(new_cache)
         changed += max(0, deleted)
 
-        print(
+        log.info(
             f"[skimmer] Scanner: local — {total} files, "
             f"{kept} unchanged, {rehashed} rehashed, "
             f"{changed} changes ({max(0, deleted)} deleted)"
@@ -141,7 +144,7 @@ class BackgroundScanner:
             self._local_cache = new_cache
 
         synccache.save_cache(self._local_cache_path, music_dir, new_cache)
-        print(f"[skimmer] Scanner: local cache saved to {self._local_cache_path}")
+        log.info(f"[skimmer] Scanner: local cache saved to {self._local_cache_path}")
 
         if self._on_progress:
             self._on_progress(total, total)
@@ -151,27 +154,27 @@ class BackgroundScanner:
     def _scan_device(self):
         mount_path = self.config.get("mount_path", "")
         if not mount_path or not os.path.isdir(mount_path):
-            print(f"[skimmer] Scanner: device not mounted, skipping")
+            log.info(f"[skimmer] Scanner: device not mounted, skipping")
             return 0
 
         device_music = os.path.join(mount_path, "Music")
         if not os.path.isdir(device_music):
-            print(
+            log.info(
                 f"[skimmer] Scanner: device Music dir not found: {device_music}, skipping"
             )
             return 0
 
         device_cache = os.path.join(mount_path, ".skimmer-cache.json")
-        print(f"[skimmer] Scanner: walking device {device_music}")
+        log.info(f"[skimmer] Scanner: walking device {device_music}")
         if self._on_status:
             self._on_status("Scanning device...")
 
         current = synccache._walk(device_music)
         total = len(current)
-        print(f"[skimmer] Scanner: device — found {total} files")
+        log.info(f"[skimmer] Scanner: device — found {total} files")
 
         old_cache = synccache.load_cache(device_cache, device_music) or {}
-        print(
+        log.info(
             f"[skimmer] Scanner: device — loaded cache ({len(old_cache)} files)"
             if old_cache
             else "[skimmer] Scanner: device — no existing cache"
@@ -206,14 +209,14 @@ class BackgroundScanner:
         deleted = len(old_cache) - len(new_cache)
         changed += max(0, deleted)
 
-        print(
+        log.info(
             f"[skimmer] Scanner: device — {total} files, "
             f"{kept} unchanged, {rehashed} rehashed, "
             f"{changed} changes ({max(0, deleted)} deleted)"
         )
 
         synccache.save_cache(device_cache, device_music, new_cache)
-        print(f"[skimmer] Scanner: device cache saved to {device_cache}")
+        log.info(f"[skimmer] Scanner: device cache saved to {device_cache}")
 
         if self._on_progress:
             self._on_progress(total, total)

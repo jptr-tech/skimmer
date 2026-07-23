@@ -105,18 +105,17 @@ class LibraryPage(Gtk.Box):
         GLib.idle_add(self._refresh)
 
     def _init_beets(self):
+        from skimmer.config import resolve_path
+
+        lib_path = resolve_path(self.config, "beets_lib")
+        music_dir = resolve_path(self.config, "music_dir")
+
         try:
-            lib_path = os.path.expanduser(
-                self.config.get("beets_lib", "~/Music/.musiclibrary.db")
-            )
-            music_dir = os.path.expanduser(
-                self.config.get("music_dir", "~/Music")
-            )
             beets_context.set_music_dir(bytestring_path(music_dir))
-            if os.path.exists(lib_path):
-                self._beets_lib = Library(lib_path, directory=music_dir)
-        except Exception:
-            pass
+            self._beets_lib = Library(lib_path, directory=music_dir)
+            print(f"[skimmer] Opened beets library at {lib_path}")
+        except Exception as e:
+            print(f"[skimmer] Failed to open beets library at {lib_path}: {e}")
 
     def _refresh(self, *args):
         self.flowbox.remove_all()

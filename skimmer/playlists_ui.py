@@ -28,8 +28,10 @@ from skimmer.playlist import (
 
 
 def _beets_search(query: str, config: dict) -> list[PlaylistTrack]:
-    music_dir = os.path.expanduser(config.get("music_dir", "~/Music"))
-    beets_db = os.path.expanduser(config.get("beets_lib", "~/Music/.musiclibrary.db"))
+    from skimmer.config import resolve_path
+
+    music_dir = resolve_path(config, "music_dir")
+    beets_db = resolve_path(config, "beets_lib")
     if not os.path.exists(beets_db):
         return []
     beets_context.set_music_dir(bytestring_path(music_dir))

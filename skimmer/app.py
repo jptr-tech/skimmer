@@ -305,6 +305,13 @@ class SkimmerApp(Adw.Application):
             self.sync_label.set_text("Ejected safely")
             self.eject_btn.set_visible(False)
             self.sync_btn.set_visible(False)
+            GLib.timeout_add_seconds(3, self._clear_mount_path)
+
+    def _clear_mount_path(self):
+        self.config["mount_path"] = ""
+        save_config(self.config)
+        self._check_mount()
+        return GLib.SOURCE_REMOVE
 
     def _on_proc_added(self, mgr, task):
         task.connect("updated", self._on_proc_change)

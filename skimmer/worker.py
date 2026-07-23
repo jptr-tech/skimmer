@@ -171,9 +171,11 @@ class ProcessingManager(GObject.Object):
         if not album_dir or not os.path.isdir(album_dir):
             raise FileNotFoundError(f"Album directory not found: {album_dir}")
 
+        from skimmer.config import resolve_path
+
         files = os.listdir(album_dir)
-        music_dir = self.config.get("music_dir", "~")
-        beets_db = self.config.get("beets_lib", "~")
+        music_dir = resolve_path(self.config, "music_dir")
+        beets_db = resolve_path(self.config, "beets_lib")
         print(f"[skimmer] Importing {len(files)} files from {album_dir}")
         print(f"[skimmer]   music_dir = {music_dir}")
         print(f"[skimmer]   beets_lib = {beets_db}")

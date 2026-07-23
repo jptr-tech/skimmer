@@ -1,7 +1,14 @@
+import os
+
 import gi
 gi.require_version("Adw", "1")
 gi.require_version("Gtk", "4.0")
 from gi.repository import Adw, Gtk, GLib
+
+from skimmer.config import resolve_path
+
+
+_BEETS_KEYS = ("music_dir", "beets_lib")
 
 
 class SettingsPage(Gtk.Box):
@@ -29,6 +36,7 @@ class SettingsPage(Gtk.Box):
         grid.set_margin_bottom(12)
 
         self.entries = {}
+        self._beets_defaults = {}
         row = 0
         for key, label_text, is_path in [
             ("music_dir", "Music Library", True),
@@ -40,7 +48,8 @@ class SettingsPage(Gtk.Box):
             grid.attach(lbl_w, 0, row, 1, 1)
 
             entry = Gtk.Entry()
-            entry.set_text(self.config.get(key, ""))
+            effective = resolve_path(config, key) if key in _BEETS_KEYS else config.get(key, "")
+            entry.set_text(effective)
             entry.set_hexpand(True)
             grid.attach(entry, 1, row, 1, 1)
             self.entries[key] = entry
@@ -49,6 +58,12 @@ class SettingsPage(Gtk.Box):
                 browse_btn = Gtk.Button(label="Browse...")
                 browse_btn.connect("clicked", self._on_browse, entry)
                 grid.attach(browse_btn, 2, row, 1, 1)
+
+            if key in _BEETS_KEYS:
+                self._beets_defaults[key] = effective
+                reset_btn = Gtk.Button(label="Reset")
+                reset_btn.connect("clicked", self._on_reset, entry, key)
+                grid.attach(reset_btn, 3, row, 1, 1)
             row += 1
 
         lbl_w = Gtk.Label(label="YT-DLP Format", halign=Gtk.Align.START)
@@ -204,6 +219,13 @@ class SettingsPage(Gtk.Box):
             if folder:
                 entry.set_text(folder.get_path())
         dialog.destroy()
+
+    def _on_reset(self, btn, entry, key):
+        from skimmer.config import _beets_config_value, _BEETS_FALLBACKS
+        val = _beets_config_value(key)
+        if not val:
+            val = os.path.expanduser(_BEETS_FALLBACKS[key])
+        entry.set_text(val)
 
     def _save(self, *args):
         for key, widget in self.entries.items():

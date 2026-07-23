@@ -12,6 +12,7 @@ if os.path.isdir(lib_dir):
     os.environ.setdefault('GST_PLUGIN_PATH',
                           os.path.join(lib_dir, 'gstreamer-1.0'))
 
-typelib_dir = os.path.join(share_dir, 'gir-1.0')
+# PyInstaller's gi hook places .typelib files in <meipass>/gi_typelibs
+typelib_dir = os.path.join(meipass, 'gi_typelibs')
 if os.path.isdir(typelib_dir):
     os.environ.setdefault('GI_TYPELIB_PATH', typelib_dir)

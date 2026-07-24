@@ -1,6 +1,7 @@
 import os
 import queue
 import shutil
+import sys
 import threading
 import time
 import uuid
@@ -107,9 +108,20 @@ class ProcessingManager(GObject.Object):
 
         for i, track in enumerate(album["tracks"]):
             log.info(f"[skimmer]   Track {i+1}/{total}: {track.get('title', '?')} (videoId: {track.get('videoId', 'none')})")
-        ydl_opts = {
-            "format": self.config["ytdlp_format"],
-            "outtmpl": os.path.join(album_dir, "%(title)s.%(ext)s"),
+
+        ffmpeg_location_dir = None
+        meipass = getattr(sys, '_MEIPASS', None)
+        if meipass:
+            ffmpeg_path = shutil.which('ffmpeg') or os.path.join(meipass, 'ffmpeg')
+            if os.path.exists(ffmpeg_path):
+                log.info(f"[skimmer] Using bundled ffmpeg at {ffmpeg_path}")
+                ffmpeg_location_dir = os.path.dirname(ffmpeg_path)
+
+        ydl_opts = {"format": self.config["ytdlp_format"]}
+        if ffmpeg_location_dir:
+            ydl_opts["ffmpeg_location"] = ffmpeg_location_dir
+        ydl_opts.update({
+            "outtmpl": os.path.join(album_dir, "%(autonumber)02d - %(title)s.%(ext)s"),
             "quiet": True,
             "no_warnings": True,
             "extract_flat": False,
@@ -122,7 +134,7 @@ class ProcessingManager(GObject.Object):
             "progress_hooks": [
                 lambda d: self._ytdlp_hook(d, task, total, vid_to_idx)
             ],
-        }
+        })
 
         urls = []
         for track in album["tracks"]:
@@ -175,7 +187,7 @@ class ProcessingManager(GObject.Object):
 
         from skimmer.config import resolve_path
 
-        files = os.listdir(album_dir)
+        files = sorted(os.listdir(album_dir))
         music_dir = resolve_path(self.config, "music_dir")
         beets_db = resolve_path(self.config, "beets_lib")
         log.info(f"[skimmer] Importing {len(files)} files from {album_dir}")
@@ -255,6 +267,43 @@ class ProcessingManager(GObject.Object):
             if items:
                 album = lib.add_album(items)
                 log.info(f"[skimmer] Created album '{album.album}' (id={album.id})")
+
+                # Try beets autotag with MusicBrainz, fall back to track metadata
+                try:
+                    from beets.autotag.match import tag_album
+                    album_items = list(album.items())
+                    _, _, proposal = tag_album(
+                        album_items, search_artist=artist, search_name=album_title
+                    )
+                    if proposal and proposal.candidates:
+                        match = proposal.candidates[0]
+                        match.apply_metadata()
+                        for item in match.mapping:
+                            item.try_write()
+                            item.store()
+                        album.albumartist = match.info.artist
+                        album.album = match.info.album
+                        album.store()
+                        log.info(f"[skimmer] Autotag matched: {match.info.artist} - {match.info.album}")
+                    else:
+                        raise ValueError("No MusicBrainz candidates")
+                except Exception as autotag_err:
+                    log.warning(f"[skimmer] Autotag failed, using track metadata: {autotag_err}")
+                    tracks = task.data.get("tracks", [])
+                    if tracks:
+                        for i, item in enumerate(album.items()):
+                            if i < len(tracks):
+                                track = tracks[i]
+                                item.title = track.get("title", f"Track {i+1}")
+                                item.track = i + 1
+                                item.tracktotal = len(tracks)
+                                item.store()
+                                try:
+                                    item.try_write()
+                                except Exception:
+                                    pass
+                        log.info(f"[skimmer] Set track metadata from album data ({len(tracks)} tracks)")
+
                 try:
                     from beetsplug.fetchart import FetchArtPlugin
                     fa = FetchArtPlugin()

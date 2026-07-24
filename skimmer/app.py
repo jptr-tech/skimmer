@@ -43,7 +43,37 @@ class SkimmerApp(Adw.Application):
         self._sync_task = None
         self._auto_sync_timer = None
 
+        prefs_action = Gio.SimpleAction.new("preferences", None)
+        prefs_action.connect("activate", self._on_preferences)
+        self.add_action(prefs_action)
+        self.set_accels_for_action("app.preferences", ["<Meta>comma"])
+
+        about_action = Gio.SimpleAction.new("about", None)
+        about_action.connect("activate", self._on_about)
+        self.add_action(about_action)
+
+    def _on_about(self, action, param):
+        win = self.get_active_window()
+        about = Adw.AboutWindow(
+            transient_for=win,
+            application_name="Skimmer",
+            application_icon="tech.jptr.Skimmer",
+            version="0.1.0",
+            developer_name="covalent",
+        )
+        about.present()
+
+    def _on_preferences(self, action, param):
+        if hasattr(self, "stack"):
+            self.stack.set_visible_child_name("settings")
+
     def _on_activate(self, app):
+        if sys.platform == "darwin":
+            app_menu = Gio.Menu()
+            app_menu.append("About Skimmer", "app.about")
+            app_menu.append("Preferences", "app.preferences")
+            self.set_menubar(app_menu)
+
         win = Adw.ApplicationWindow(application=app)
         win.set_default_size(1100, 700)
         win.set_title("Skimmer")
@@ -90,7 +120,7 @@ class SkimmerApp(Adw.Application):
         self.proc_mgr.connect("task-removed", self._on_proc_change)
         self._update_proc_badge()
 
-        page = SettingsPage(self.config, self._on_save_settings, scanner=self.scanner)
+        page = SettingsPage(self.config, self._on_save_settings, scanner=self.scanner, on_about_cb=self._on_about)
         self.stack.add_titled(page, "settings", "Settings")
         self.pages["settings"] = page
 
@@ -347,6 +377,7 @@ class SkimmerApp(Adw.Application):
         self.pages["search"].config = config
 
     def _on_global_key(self, ctrl, keyval, keycode, state):
+        meta = state & Gdk.ModifierType.META_MASK
         if keyval in (Gdk.KEY_space, Gdk.KEY_KP_Space):
             focus = ctrl.get_widget().get_focus()
             if focus is not None and isinstance(
@@ -354,5 +385,10 @@ class SkimmerApp(Adw.Application):
             ):
                 return False
             self.player_bar._on_play_pause(None)
+            return True
+        if meta and keyval == Gdk.KEY_w:
+            win = self.get_active_window()
+            if win:
+                win.close()
             return True
         return False

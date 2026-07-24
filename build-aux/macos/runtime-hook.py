@@ -16,3 +16,7 @@ if os.path.isdir(lib_dir):
 typelib_dir = os.path.join(meipass, 'gi_typelibs')
 if os.path.isdir(typelib_dir):
     os.environ.setdefault('GI_TYPELIB_PATH', typelib_dir)
+
+# Add Resources dir to PATH so bundled tools (ffmpeg, ffprobe) are found
+if os.path.isdir(meipass):
+    os.environ["PATH"] = f"{meipass}:{os.environ.get('PATH', '')}"

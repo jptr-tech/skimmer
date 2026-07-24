@@ -12,10 +12,11 @@ _BEETS_KEYS = ("music_dir", "beets_lib")
 
 
 class SettingsPage(Gtk.Box):
-    def __init__(self, config, on_save, scanner=None):
+    def __init__(self, config, on_save, scanner=None, on_about_cb=None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self.config = config
         self.on_save_cb = on_save
+        self._on_about_cb = on_about_cb
         self._scanner = scanner
         self.set_margin_start(12)
         self.set_margin_end(12)
@@ -150,12 +151,24 @@ class SettingsPage(Gtk.Box):
         self.append(scan_frame)
 
         btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        btn_box.set_halign(Gtk.Align.END)
+        btn_box.set_halign(Gtk.Align.FILL)
+
+        about_btn = Gtk.Button(label="About Skimmer")
+        about_btn.add_css_class("flat")
+        if self._on_about_cb:
+            about_btn.connect("clicked", lambda b: self._on_about_cb(None, None))
+        btn_box.append(about_btn)
+
+        btn_box2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        btn_box2.set_halign(Gtk.Align.END)
+        btn_box2.set_hexpand(True)
 
         save_btn = Gtk.Button(label="Save")
         save_btn.add_css_class("suggested-action")
         save_btn.connect("clicked", self._save)
-        btn_box.append(save_btn)
+        btn_box2.append(save_btn)
+
+        btn_box.append(btn_box2)
 
         self.append(btn_box)
 

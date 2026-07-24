@@ -457,19 +457,19 @@ class AlbumDetail(Gtk.Box):
         meta_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         meta_box.set_valign(Gtk.Align.START)
 
-        title_lbl = Gtk.Label(label=album, css_classes=["title-2"])
-        title_lbl.set_halign(Gtk.Align.START)
-        title_lbl.set_wrap(True)
-        meta_box.append(title_lbl)
+        self._title_lbl = Gtk.Label(label=album, css_classes=["title-2"])
+        self._title_lbl.set_halign(Gtk.Align.START)
+        self._title_lbl.set_wrap(True)
+        meta_box.append(self._title_lbl)
 
-        artist_lbl = Gtk.Label(label=artist, css_classes=["title-4"])
-        artist_lbl.set_halign(Gtk.Align.START)
-        meta_box.append(artist_lbl)
+        self._artist_lbl = Gtk.Label(label=artist, css_classes=["title-4"])
+        self._artist_lbl.set_halign(Gtk.Align.START)
+        meta_box.append(self._artist_lbl)
 
-        year_lbl = Gtk.Label(label=str(year) if year else "")
-        year_lbl.set_halign(Gtk.Align.START)
-        year_lbl.add_css_class("dim-label")
-        meta_box.append(year_lbl)
+        self._year_lbl = Gtk.Label(label=str(year) if year else "")
+        self._year_lbl.set_halign(Gtk.Align.START)
+        self._year_lbl.add_css_class("dim-label")
+        meta_box.append(self._year_lbl)
 
         if album_path and on_set_cover is not None:
             btn_grid = Gtk.Grid()
@@ -722,6 +722,70 @@ class AlbumDetail(Gtk.Box):
             on_complete=self._reimport_complete_cb,
         )
         dialog.present()
+
+    def refresh_from_beets(self):
+        if not self._beets_lib or not self._album_obj:
+            return
+        try:
+            album_id = self._album_obj.id
+            album = self._beets_lib.get_album(album_id)
+            if not album:
+                return
+            self._album_obj = album
+            self._tracks = []
+            for item in album.items():
+                self._tracks.append({
+                    "track": str(item.track or ""),
+                    "title": item.title or "?",
+                    "artist": item.artist or self._artist,
+                    "file_path": os.fsdecode(item.path) if item.path else None,
+                })
+            self._artist = album.albumartist or self._artist
+            self._album = album.album or self._album
+            year = album.year or 0
+            self._title_lbl.set_label(self._album)
+            self._artist_lbl.set_label(self._artist)
+            self._year_lbl.set_label(str(year) if year else "")
+            while child := self._track_list.get_first_child():
+                self._track_list.remove(child)
+            for t in self._tracks:
+                row = Gtk.ListBoxRow()
+                hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+                hbox.set_margin_start(8)
+                hbox.set_margin_end(8)
+                hbox.set_margin_top(4)
+                hbox.set_margin_bottom(4)
+                num = t.get("track", "")
+                num_lbl = Gtk.Label(label=str(num))
+                num_lbl.set_width_chars(2)
+                num_lbl.set_xalign(1.0)
+                num_lbl.add_css_class("dim-label")
+                hbox.append(num_lbl)
+                title_lbl = Gtk.Label(label=t.get("title", "?"))
+                title_lbl.set_halign(Gtk.Align.START)
+                title_lbl.set_hexpand(True)
+                title_lbl.set_ellipsize(Pango.EllipsizeMode.END)
+                title_lbl.set_single_line_mode(True)
+                hbox.append(title_lbl)
+                artist = t.get("artist", "")
+                if artist and artist != self._artist:
+                    art_lbl = Gtk.Label(label=artist)
+                    art_lbl.set_halign(Gtk.Align.END)
+                    art_lbl.add_css_class("dim-label")
+                    art_lbl.set_ellipsize(Pango.EllipsizeMode.END)
+                    art_lbl.set_single_line_mode(True)
+                    hbox.append(art_lbl)
+                playlist_btn = Gtk.MenuButton()
+                playlist_btn.set_icon_name("list-add-symbolic")
+                playlist_btn.set_tooltip_text("Add to playlist")
+                playlist_btn.set_has_frame(False)
+                playlist_btn.set_popover(self._build_playlist_popover(t))
+                hbox.append(playlist_btn)
+                row.set_child(hbox)
+                self._track_list.append(row)
+            self._load_detail_cover(None, None)
+        except Exception as e:
+            log.warning(f"[skimmer] refresh_from_beets failed: {e}")
 
     def _on_set_cover_clicked(self, btn):
         parent = self.get_root() if self.get_root() else None

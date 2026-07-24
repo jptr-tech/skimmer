@@ -6,8 +6,8 @@ APP_NAME="Skimmer"
 ICNS="build-aux/data/icons/Skimmer.icns"
 
 if [ ! -f "$ICNS" ]; then
-    echo "Missing $ICNS — run ./build-aux/macos/make-icns.sh first"
-    exit 1
+  echo "Missing $ICNS — run ./build-aux/macos/make-icns.sh first"
+  exit 1
 fi
 
 HOMEBREW_PREFIX=$(brew --prefix)
@@ -48,51 +48,61 @@ fontconfig
 "
 
 PYINST_ARGS=(
-    --name "$APP_NAME"
-    --icon "$ICNS"
-    --windowed
-    --onedir
-    --add-data "skimmer/data:skimmer/data"
+  --name "$APP_NAME"
+  --icon "$ICNS"
+  --windowed
+  --onedir
+  --add-data "skimmer/data:skimmer/data"
 )
 
 # Only bundle the share directories actually needed at runtime
 for dir in $SHARE_DIRS; do
-    PYINST_ARGS+=(--add-data "$SHARE/$dir:share/$dir")
+  PYINST_ARGS+=(--add-data "$SHARE/$dir:share/$dir")
 done
 
 # Only bundle the GStreamer plugins needed for audio playback
 for plugin in $GST_PLUGINS; do
-    PYINST_ARGS+=(--add-binary "$GST/$plugin:lib/gstreamer-1.0")
+  PYINST_ARGS+=(--add-binary "$GST/$plugin:lib/gstreamer-1.0")
 done
 
+# Bundle ffmpeg/ffprobe for yt-dlp post-processing
+PYINST_ARGS+=(--add-binary "$HOMEBREW_PREFIX/bin/ffmpeg:.")
+PYINST_ARGS+=(--add-binary "$HOMEBREW_PREFIX/bin/ffprobe:.")
+
 PYINST_ARGS+=(
-    --collect-data gi
-    --collect-submodules gi
-    --collect-data ytmusicapi
-    --collect-data beets
-    --hidden-import gi
-    --hidden-import gi.repository
-    --hidden-import gi.repository.Gtk
-    --hidden-import gi.repository.Adw
-    --hidden-import gi.repository.Gst
-    --hidden-import gi.repository.GdkPixbuf
-    --hidden-import gi.repository.Gio
-    --hidden-import gi.repository.GLib
-    --hidden-import gi.repository.Pango
-    --hidden-import gi.repository.PangoCairo
-    --hidden-import gi.repository.cairo
-    --hidden-import gi.repository.HarfBuzz
-    --hidden-import gi.repository.Gdk
-    --hidden-import gi.repository.GObject
-    --hidden-import ytmusicapi
-    --hidden-import yt_dlp
-    --hidden-import beets
-    --hidden-import platformdirs
-    --hidden-import mpris_server
-    --runtime-hook build-aux/macos/runtime-hook.py
-    skimmer/__main__.py
+  --collect-data gi
+  --collect-submodules gi
+  --collect-data ytmusicapi
+  --collect-data beets
+  --hidden-import gi
+  --hidden-import gi.repository
+  --hidden-import gi.repository.Gtk
+  --hidden-import gi.repository.Adw
+  --hidden-import gi.repository.Gst
+  --hidden-import gi.repository.GdkPixbuf
+  --hidden-import gi.repository.Gio
+  --hidden-import gi.repository.GLib
+  --hidden-import gi.repository.Pango
+  --hidden-import gi.repository.PangoCairo
+  --hidden-import gi.repository.cairo
+  --hidden-import gi.repository.HarfBuzz
+  --hidden-import gi.repository.Gdk
+  --hidden-import gi.repository.GObject
+  --hidden-import ytmusicapi
+  --hidden-import yt_dlp
+  --hidden-import beets
+  --hidden-import beets.metadata_plugins
+  --hidden-import beetsplug
+  --collect-submodules beetsplug
+  --hidden-import platformdirs
+  --hidden-import mpris_server
+  --runtime-hook build-aux/macos/runtime-hook.py
+  skimmer/__main__.py
 )
 
+# Nuke the dist folder because it needs to regen each time
+rm -rf ./dist/
+# Then build
 uv run pyinstaller "${PYINST_ARGS[@]}"
 
 # Remove GTK3 libraries and plugins to avoid conflicts with GTK4
@@ -101,8 +111,12 @@ rm -f "$FRAMEWORKS"/libgdk-3* "$FRAMEWORKS"/libgtk-3* "$FRAMEWORKS"/libgail*
 find "$FRAMEWORKS" -maxdepth 1 -name "libgstgtk*" -delete
 find "$FRAMEWORKS" -maxdepth 1 -name "libgstvalidategtk*" -delete
 
-# Re-sign after removing libraries (ad-hoc signing for local use)
-codesign --force --deep --sign - "dist/$APP_NAME.app" 2>/dev/null || true
+# Re-sign after removing libraries
+if [ -n "${SIGN_IDENTITY:-}" ]; then
+  codesign --force --deep --sign "$SIGN_IDENTITY" "dist/$APP_NAME.app"
+else
+  codesign --force --deep --sign - "dist/$APP_NAME.app" 2>/dev/null || true
+fi
 
 echo "---"
 echo "App bundle at dist/$APP_NAME.app"

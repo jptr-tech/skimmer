@@ -225,6 +225,7 @@ class LibraryPage(Gtk.Box):
 
         def reimport_cb():
             self._refresh()
+            detail.refresh_from_beets()
 
         detail = AlbumDetail(
             config=self.config,
@@ -265,6 +266,7 @@ class LibraryPage(Gtk.Box):
                 try:
                     album.remove(delete=True)
                     self._refresh()
+                    self.stack.set_visible_child_name("grid")
                 except Exception as e:
                     err_dialog = Adw.AlertDialog()
                     err_dialog.set_heading("Delete Failed")

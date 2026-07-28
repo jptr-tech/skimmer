@@ -15,6 +15,7 @@ from gi.repository import GLib, GObject
 
 from skimmer import synccache
 from skimmer.playlist import Playlist, PlaylistTrack, load_playlists, save_playlists, export_m3u8, parse_m3u8
+from skimmer.spotify_import import SpotifyImporter
 
 import logging
 log = logging.getLogger(__name__)
@@ -78,6 +79,8 @@ class ProcessingManager(GObject.Object):
                     self._do_import(task)
                 elif task.type == "sync":
                     self._do_sync(task)
+                elif task.type == "spotify_import":
+                    self._do_spotify_import(task)
                 task.status = "completed"
                 task.progress = 1.0
                 task.emit("updated", task.status, task.progress, "")
@@ -488,3 +491,27 @@ class ProcessingManager(GObject.Object):
             log.info(f"[skimmer] Sync: playlists synced ({len(app_playlists)} playlists)")
         else:
             log.info("[skimmer] Sync: playlists already up to date")
+
+    def _do_spotify_import(self, task):
+        url = task.data.get("url", "")
+        if not url:
+            raise ValueError("No URL provided for Spotify import")
+
+        log.info(f"[skimmer] Starting Spotify import: {url}")
+
+        importer = SpotifyImporter(self.config)
+
+        def emit_status(msg):
+            GLib.idle_add(task.emit, "updated", task.status, task.progress, msg)
+
+        def emit_progress(current, total, msg):
+            frac = current / total if total > 0 else 0
+            task.progress = frac
+            GLib.idle_add(task.emit, "updated", task.status, frac, msg)
+
+        importer.set_callbacks(on_status=emit_status, on_progress=emit_progress)
+
+        result = importer.import_playlist(url)
+        task.data["result"] = result
+
+        log.info(f"[skimmer] Spotify import complete: {result['name']}, {len(result['tracks'])} tracks")

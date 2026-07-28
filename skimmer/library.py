@@ -120,6 +120,23 @@ class LibraryPage(Gtk.Box):
         except Exception as e:
             log.info(f"[skimmer] Failed to open beets library at {lib_path}: {e}")
 
+    def _remap_beets_path(self, beets_path):
+        if not beets_path:
+            return None
+        if os.path.exists(beets_path):
+            return beets_path
+        music_dir = os.path.abspath(os.path.expanduser(self.config.get("music_dir", "~/Music")))
+        idx = beets_path.find("/Music/")
+        if idx != -1:
+            remapped = os.path.join(music_dir, beets_path[idx + len("/Music/"):])
+            if os.path.exists(remapped):
+                log.info(f"[skimmer] Remapped beets path: {beets_path!r} -> {remapped!r}")
+                return remapped
+        return beets_path
+
+    def _resolve_album_path(self, album):
+        return self._remap_beets_path(os.fsdecode(album.path) if album.path else None)
+
     def _refresh(self, *args):
         self.flowbox.remove_all()
         self._cover_widgets = []
@@ -131,6 +148,8 @@ class LibraryPage(Gtk.Box):
             return
         try:
             for album in self._beets_lib.albums():
+                if getattr(album, 'genre', None) == "Spotify Import":
+                    continue
                 try:
                     artist = album.albumartist or "Unknown"
                 except AttributeError:
@@ -144,11 +163,13 @@ class LibraryPage(Gtk.Box):
                     continue
                 cover_path = None
                 try:
-                    album_path = os.fsdecode(album.path) if album.path else None
+                    album_path = self._resolve_album_path(album)
                     if album_path:
                         cover_path = find_cover(album_path)
-                except Exception:
-                    pass
+                        if not cover_path:
+                            log.info(f"[skimmer] cover: find_cover({album_path!r}) returned None for '{artist}' - '{title}'")
+                except Exception as e:
+                    log.info(f"[skimmer] cover: error resolving cover for '{artist}' - '{title}': {e}")
                 self._all_albums.append((artist, title, year, cover_path, album))
             self._build_covers()
             self._filter_and_reflow(self.search_entry.get_text())
@@ -158,6 +179,15 @@ class LibraryPage(Gtk.Box):
     def _build_covers(self):
         self.flowbox.remove_all()
         self._cover_widgets = []
+
+        your_music = AlbumCover(
+            "Your Music", "Your Music", 0,
+            is_your_music=True,
+            data=None,
+            size=self._cover_size,
+        )
+        self._cover_widgets.append(your_music)
+
         for artist, title, year, cover_path, album in self._all_albums:
             cover = AlbumCover(
                 artist,
@@ -193,9 +223,9 @@ class LibraryPage(Gtk.Box):
         for i, (artist, title, year, _, album) in enumerate(self._all_albums):
             cover_path = None
             try:
-                album_path_fs = os.fsdecode(album.path) if album.path else None
-                if album_path_fs:
-                    cover_path = find_cover(album_path_fs)
+                album_path = self._resolve_album_path(album)
+                if album_path:
+                    cover_path = find_cover(album_path)
             except Exception:
                 pass
             self._all_albums[i] = (artist, title, year, cover_path, album)
@@ -204,6 +234,28 @@ class LibraryPage(Gtk.Box):
 
     def _on_album_activated(self, flowbox, child):
         cover = child
+
+        if cover.is_your_music:
+            detail = AlbumDetail(
+                config=self.config,
+                artist="Your Music",
+                album="Your Music",
+                year=0,
+                tracks=[],
+                cover_path=None,
+                on_back=lambda: self.stack.set_visible_child_name("grid"),
+                player_bar=self._player_bar,
+                beets_lib=self._beets_lib,
+                all_tracks_mode=True,
+            )
+            detail.set_vexpand(True)
+            name = "detail-your-music"
+            if self.stack.get_child_by_name(name):
+                self.stack.remove(self.stack.get_child_by_name(name))
+            self.stack.add_named(detail, name)
+            self.stack.set_visible_child(detail)
+            return
+
         album_obj = cover.data
         tracks = []
         try:
@@ -213,15 +265,13 @@ class LibraryPage(Gtk.Box):
                         "track": str(item.track or ""),
                         "title": item.title or "?",
                         "artist": item.artist or cover.artist,
-                        "file_path": os.fsdecode(item.path) if item.path else None,
+                        "file_path": self._remap_beets_path(os.fsdecode(item.path) if item.path else None),
                     }
                 )
         except Exception:
             tracks = []
 
-        album_path = (
-            os.fsdecode(album_obj.path) if album_obj and album_obj.path else None
-        )
+        album_path = self._resolve_album_path(album_obj)
 
         def reimport_cb():
             self._refresh()

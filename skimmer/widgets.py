@@ -47,7 +47,7 @@ def _make_placeholder_pixbuf(size=COVER_SIZE):
 class AlbumCover(Gtk.FlowBoxChild):
     ITEM_EXTRA = 12
 
-    def __init__(self, artist, album, year, cover_path=None, cover_url=None, data=None, size=COVER_SIZE, on_delete=None):
+    def __init__(self, artist, album, year, cover_path=None, cover_url=None, data=None, size=COVER_SIZE, on_delete=None, is_pinned=False, is_your_music=False):
         super().__init__()
         self.artist = artist
         self.album = album
@@ -56,6 +56,8 @@ class AlbumCover(Gtk.FlowBoxChild):
         self.cover_url = cover_url
         self.data = data
         self._on_delete = on_delete
+        self.is_pinned = is_pinned
+        self.is_your_music = is_your_music
 
         self._cover_size = size
         self._visible = True
@@ -125,16 +127,38 @@ class AlbumCover(Gtk.FlowBoxChild):
         self._apply_size()
 
     def _load_cover(self):
-        if self.cover_path and os.path.exists(self.cover_path):
+        if self.is_your_music:
+            s = self._cover_size
+            pixbuf = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, True, 8, s, s)
+            pixbuf.fill(0x333333ff)
             try:
-                pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
-                    self.cover_path, self._cover_size, self._cover_size, True
-                )
-                self.image.set_from_pixbuf(pixbuf)
-                return
+                icon_theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
+                icon_pixbuf = icon_theme.lookup_icon(
+                    "audio-x-generic-symbolic", None, s // 2, 1,
+                    Gtk.TextDirection.NONE, Gtk.IconLookupFlags.FORCE_SYMBOLIC,
+                ).load_icon()
+                icon_pixbuf.composite(pixbuf, s // 4, s // 4, s // 2, s // 2,
+                                      s // 4, s // 4, 1.0, 1.0,
+                                      GdkPixbuf.InterpType.BILINEAR, 255)
             except Exception:
                 pass
-        elif self.cover_url:
+            self.image.set_from_pixbuf(pixbuf)
+            return
+        if self.cover_path:
+            if os.path.exists(self.cover_path):
+                try:
+                    pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
+                        self.cover_path, self._cover_size, self._cover_size, True
+                    )
+                    self.image.set_from_pixbuf(pixbuf)
+                    return
+                except Exception as e:
+                    log.warning(f"[skimmer] cover: GdkPixbuf failed to load {self.cover_path!r}: {e}")
+            else:
+                log.info(f"[skimmer] cover: path {self.cover_path!r} does not exist")
+        else:
+            log.info(f"[skimmer] cover: no cover_path for {self.artist} - {self.album}")
+        if self.cover_url:
             threading.Thread(target=self._load_url_cover, daemon=True).start()
             return
         self._set_placeholder()
@@ -401,7 +425,8 @@ class AlbumDetail(Gtk.Box):
                  on_back=None, on_download=None,
                  album_path=None, on_set_cover=None,
                  player_bar=None, beets_lib=None,
-                 album_obj=None, on_reimport=None, on_delete=None):
+                 album_obj=None, on_reimport=None, on_delete=None,
+                 all_tracks_mode=False):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self.config = config
         self.album_path = album_path
@@ -415,6 +440,7 @@ class AlbumDetail(Gtk.Box):
         self._album_obj = album_obj
         self._reimport_complete_cb = on_reimport
         self._delete_cb = on_delete
+        self._all_tracks_mode = all_tracks_mode
         self._tracks = sorted(
             tracks,
             key=lambda t: (
@@ -422,6 +448,9 @@ class AlbumDetail(Gtk.Box):
                 int(t.get("trackNumber", 0) or 0),
             ),
         )
+
+        if self._all_tracks_mode:
+            self._load_all_tracks()
 
         scroll = Gtk.ScrolledWindow()
         scroll.set_vexpand(True)
@@ -559,6 +588,28 @@ class AlbumDetail(Gtk.Box):
 
         if self._player_bar:
             self._player_bar.set_track_change_cb(self._on_current_track_changed)
+
+    def _load_all_tracks(self):
+        if not self._beets_lib:
+            return
+        try:
+            all_items = list(self._beets_lib.items(""))
+            all_items.sort(key=lambda i: ((i.artist or "").lower(), (i.title or "").lower()))
+        except AttributeError:
+            all_items = sorted(
+                self._beets_lib.items(""),
+                key=lambda i: (getattr(i, "artist", "") or "").lower(),
+            )
+        self._tracks = []
+        for item in all_items:
+            self._tracks.append({
+                "track": str(getattr(item, "track", "") or ""),
+                "title": getattr(item, "title", "?") or "?",
+                "artist": getattr(item, "artist", "") or self._artist,
+                "file_path": os.fsdecode(item.path) if getattr(item, "path", None) else None,
+            })
+        self._artist = "Your Music"
+        self._album = "Your Music"
 
     def _build_playlist_popover(self, track):
         file_path = track.get("file_path")
@@ -830,15 +881,20 @@ class AlbumDetail(Gtk.Box):
         dialog.destroy()
 
     def _load_detail_cover(self, cover_path, cover_url):
-        if cover_path and os.path.exists(cover_path):
-            try:
-                pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
-                    cover_path, 200, 200, True
-                )
-                self.cover_img.set_from_pixbuf(pixbuf)
-                return
-            except Exception:
-                pass
+        if cover_path:
+            if os.path.exists(cover_path):
+                try:
+                    pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
+                        cover_path, 200, 200, True
+                    )
+                    self.cover_img.set_from_pixbuf(pixbuf)
+                    return
+                except Exception as e:
+                    log.warning(f"[skimmer] detail_cover: GdkPixbuf failed to load {cover_path!r}: {e}")
+            else:
+                log.info(f"[skimmer] detail_cover: path {cover_path!r} does not exist")
+        else:
+            log.info(f"[skimmer] detail_cover: no cover_path for {self._artist} - {self._album}")
         if cover_url:
             threading.Thread(
                 target=self._load_url, args=(cover_url,), daemon=True
@@ -993,7 +1049,7 @@ class AlbumImportDialog(Gtk.Window):
             log.info(f"[skimmer] reimport: found {count} candidates")
             GLib.idle_add(self._on_candidates, proposal.candidates if proposal else [])
         except Exception as e:
-            log.warning(f"[skimmer] reimport: search error: {e}")
+            log.warning(f"[skimmer] reimport: search error: {e}", exc_info=True)
             GLib.idle_add(self._on_search_error, str(e))
 
     def _on_search_error(self, msg):
@@ -1085,7 +1141,7 @@ class AlbumImportDialog(Gtk.Window):
                     db_item.read(fpath)
                     db_item.store()
                 except Exception as e:
-                    log.warning(f"[skimmer] reimport: error updating item: {e}")
+                    log.warning(f"[skimmer] reimport: error updating item: {e}", exc_info=True)
             try:
                 self._album.albumartist = match.info.artist
                 self._album.album = match.info.album
@@ -1094,6 +1150,7 @@ class AlbumImportDialog(Gtk.Window):
                 pass
             GLib.idle_add(self._on_import_done, None)
         except Exception as e:
+            log.warning(f"[skimmer] reimport: import_thread error: {e}", exc_info=True)
             GLib.idle_add(self._on_import_done, str(e))
 
     def _on_import_done(self, error):

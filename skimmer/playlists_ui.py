@@ -2,6 +2,7 @@ import os
 import shutil
 import threading
 import time
+import uuid
 
 import gi
 
@@ -28,6 +29,7 @@ from skimmer.playlist import (
     resolve_cover,
     COVERS_DIR,
 )
+from skimmer.spotify_import import SpotifyImporter, SpotifyImportError
 
 
 def _beets_search(query: str, config: dict) -> list[PlaylistTrack]:
@@ -150,6 +152,118 @@ class AddTracksDialog(Gtk.Window):
         self.close()
 
 
+class SpotifyImportDialog(Gtk.Window):
+    def __init__(self, parent, config, on_complete):
+        super().__init__(title="Import from Spotify", transient_for=parent, modal=True)
+        self._config = config
+        self._on_complete = on_complete
+        self._importer = SpotifyImporter(config)
+        self.set_default_size(500, 200)
+
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        vbox.set_margin_start(12)
+        vbox.set_margin_end(12)
+        vbox.set_margin_top(12)
+        vbox.set_margin_bottom(12)
+        self.set_child(vbox)
+
+        lbl = Gtk.Label(label="Spotify Playlist URL:")
+        lbl.set_halign(Gtk.Align.START)
+        vbox.append(lbl)
+
+        self.entry = Gtk.Entry()
+        self.entry.set_placeholder_text("https://open.spotify.com/playlist/...")
+        self.entry.set_hexpand(True)
+        self.entry.connect("activate", self._on_start)
+        vbox.append(self.entry)
+
+        self.status_lbl = Gtk.Label(label="")
+        self.status_lbl.set_halign(Gtk.Align.START)
+        self.status_lbl.add_css_class("dim-label")
+        vbox.append(self.status_lbl)
+
+        self.progress_bar = Gtk.ProgressBar()
+        self.progress_bar.set_visible(False)
+        vbox.append(self.progress_bar)
+
+        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        btn_box.set_halign(Gtk.Align.END)
+
+        self.start_btn = Gtk.Button(label="Start Import")
+        self.start_btn.add_css_class("suggested-action")
+        self.start_btn.connect("clicked", self._on_start)
+        btn_box.append(self.start_btn)
+
+        self.cancel_btn = Gtk.Button(label="Cancel")
+        self.cancel_btn.set_visible(False)
+        self.cancel_btn.connect("clicked", self._on_cancel)
+        btn_box.append(self.cancel_btn)
+
+        self.close_btn = Gtk.Button(label="Close")
+        self.close_btn.set_visible(False)
+        self.close_btn.connect("clicked", lambda b: self.close())
+        btn_box.append(self.close_btn)
+
+        vbox.append(btn_box)
+        self.present()
+
+    def _on_start(self, *args):
+        url = self.entry.get_text().strip()
+        if not url:
+            return
+        self.start_btn.set_visible(False)
+        self.cancel_btn.set_visible(True)
+        self.entry.set_sensitive(False)
+        self.progress_bar.set_visible(True)
+        self.progress_bar.set_fraction(0.0)
+        self.status_lbl.set_text("Starting...")
+        self._importer.set_callbacks(
+            on_status=self._on_status,
+            on_progress=self._on_progress,
+        )
+        threading.Thread(target=self._import_thread, args=(url,), daemon=True).start()
+
+    def _import_thread(self, url):
+        try:
+            result = self._importer.import_playlist(url)
+            GLib.idle_add(self._on_import_done, result, None)
+        except SpotifyImportError as e:
+            GLib.idle_add(self._on_import_done, None, str(e))
+        except Exception as e:
+            GLib.idle_add(self._on_import_done, None, f"Error: {e}")
+
+    def _on_status(self, msg):
+        self.status_lbl.set_text(msg)
+
+    def _on_progress(self, current, total, msg):
+        if total > 0:
+            self.progress_bar.set_fraction(current / total)
+        if msg:
+            self.status_lbl.set_text(msg)
+
+    def _on_cancel(self, *args):
+        self._importer.cancel()
+        self.status_lbl.set_text("Cancelling...")
+
+    def _on_import_done(self, result, error):
+        self.progress_bar.set_visible(False)
+        self.cancel_btn.set_visible(False)
+        self.close_btn.set_visible(True)
+        if error:
+            self.status_lbl.set_text(f"Import failed: {error}")
+            return
+        self.status_lbl.set_text(
+            f"Imported {result['matched'] + result['downloaded']} tracks "
+            f"({result['matched']} from library, {result['downloaded']} downloaded)"
+        )
+        if result["failed"]:
+            self.status_lbl.set_label(
+                self.status_lbl.get_label()
+                + f", {len(result['failed'])} failed"
+            )
+        self._on_complete(result)
+
+
 COVER_SIZE = 150
 
 
@@ -160,12 +274,13 @@ def _make_placeholder(size=COVER_SIZE):
 
 
 class PlaylistCover(Gtk.FlowBoxChild):
-    def __init__(self, playlist, cover_path, size=COVER_SIZE, on_delete=None):
+    def __init__(self, playlist, cover_path, size=COVER_SIZE, on_delete=None, on_rename=None):
         super().__init__()
         self.playlist = playlist
         self._cover_path = cover_path
         self._size = size
         self._on_delete = on_delete
+        self._on_rename = on_rename
         self.set_margin_start(4)
         self.set_margin_end(4)
         self.set_margin_top(4)
@@ -200,20 +315,27 @@ class PlaylistCover(Gtk.FlowBoxChild):
         self.add_controller(gesture)
 
     def _on_right_click(self, gesture, n_press, x, y):
-        if not self._on_delete:
-            return
-        menu = Gtk.PopoverMenu.new_from_model(self._build_delete_menu())
+        menu = Gtk.PopoverMenu.new_from_model(self._build_context_menu())
         menu.set_parent(self)
         menu.set_position(Gtk.PositionType.BOTTOM)
         menu.popup()
 
-    def _build_delete_menu(self):
+    def _build_context_menu(self):
         model = Gio.Menu.new()
-        model.append("Delete", "playlist.delete")
         action_group = Gio.SimpleActionGroup.new()
-        delete_action = Gio.SimpleAction.new("delete", None)
-        delete_action.connect("activate", lambda a, p: self._on_delete(self.playlist))
-        action_group.add_action(delete_action)
+
+        if self._on_rename:
+            model.append("Rename", "playlist.rename")
+            rename_action = Gio.SimpleAction.new("rename", None)
+            rename_action.connect("activate", lambda a, p: self._on_rename(self.playlist))
+            action_group.add_action(rename_action)
+
+        if self._on_delete:
+            model.append("Delete", "playlist.delete")
+            delete_action = Gio.SimpleAction.new("delete", None)
+            delete_action.connect("activate", lambda a, p: self._on_delete(self.playlist))
+            action_group.add_action(delete_action)
+
         self.insert_action_group("playlist", action_group)
         return model
 
@@ -231,10 +353,12 @@ class PlaylistCover(Gtk.FlowBoxChild):
 
 
 class PlaylistsPage(Gtk.Box):
-    def __init__(self, config, player_bar=None):
+    def __init__(self, config, player_bar=None, on_library_refresh=None, proc_mgr=None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.config = config
         self._player_bar = player_bar
+        self._on_library_refresh = on_library_refresh
+        self._proc_mgr = proc_mgr
         self._playlists: list[Playlist] = []
         self._detail_playlist_index = -1
         self.set_margin_start(12)
@@ -251,6 +375,9 @@ class PlaylistsPage(Gtk.Box):
         self._build_detail()
         self._load()
 
+        if self._player_bar:
+            self._player_bar.set_track_change_cb(self._on_player_track_change)
+
     def _build_grid(self):
         grid_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
 
@@ -261,6 +388,9 @@ class PlaylistsPage(Gtk.Box):
         import_btn = Gtk.Button(label="Import M3U")
         import_btn.connect("clicked", self._on_import)
         toolbar.append(import_btn)
+        spotify_btn = Gtk.Button(label="Import Spotify")
+        spotify_btn.connect("clicked", self._on_import_spotify)
+        toolbar.append(spotify_btn)
         grid_box.append(toolbar)
 
         search_entry = Gtk.SearchEntry()
@@ -317,10 +447,18 @@ class PlaylistsPage(Gtk.Box):
         meta_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         meta_box.set_valign(Gtk.Align.START)
 
+        name_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         self.detail_name = Gtk.Label(label="", css_classes=["title-2"])
         self.detail_name.set_halign(Gtk.Align.START)
         self.detail_name.set_wrap(True)
-        meta_box.append(self.detail_name)
+        name_box.append(self.detail_name)
+        edit_btn = Gtk.Button()
+        edit_btn.set_icon_name("document-edit-symbolic")
+        edit_btn.add_css_class("flat")
+        edit_btn.set_tooltip_text("Rename playlist")
+        edit_btn.connect("clicked", lambda b: self._on_detail_rename())
+        name_box.append(edit_btn)
+        meta_box.append(name_box)
 
         self.detail_count = Gtk.Label(label="")
         self.detail_count.set_halign(Gtk.Align.START)
@@ -377,7 +515,7 @@ class PlaylistsPage(Gtk.Box):
             if q and q not in pl.name.lower():
                 continue
             cover = resolve_cover(pl)
-            widget = PlaylistCover(pl, cover, on_delete=self._on_grid_delete)
+            widget = PlaylistCover(pl, cover, on_delete=self._on_grid_delete, on_rename=self._on_grid_rename)
             self._cover_widgets.append(widget)
             self.flowbox.append(widget)
 
@@ -463,6 +601,13 @@ class PlaylistsPage(Gtk.Box):
         self._build_detail_for(idx)
         self.stack.set_visible_child_name("detail")
 
+    def _on_player_track_change(self, index):
+        if self.stack.get_visible_child_name() != "detail":
+            return
+        row = self.detail_track_list.get_row_at_index(index)
+        if row:
+            self.detail_track_list.select_row(row)
+
     def _on_detail_track_activated(self, listbox, row):
         if self._player_bar is None or self._detail_playlist_index < 0:
             return
@@ -505,7 +650,7 @@ class PlaylistsPage(Gtk.Box):
             name = entry.get_text().strip()
             if not name:
                 return
-            pl = Playlist(name=name)
+            pl = Playlist(name=name, uuid=uuid.uuid4().hex)
             pl.last_modified = time.time()
             self._playlists.append(pl)
             self._save()
@@ -530,6 +675,54 @@ class PlaylistsPage(Gtk.Box):
         if idx < 0:
             return
         self._confirm_delete(idx)
+
+    def _on_grid_rename(self, playlist):
+        parent = self.get_root() if self.get_root() else None
+        win = Gtk.Window(title="Rename Playlist", transient_for=parent, modal=True)
+        win.set_default_size(350, 120)
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        vbox.set_margin_start(12)
+        vbox.set_margin_end(12)
+        vbox.set_margin_top(12)
+        vbox.set_margin_bottom(12)
+        win.set_child(vbox)
+        lbl = Gtk.Label(label="New playlist name:")
+        lbl.set_halign(Gtk.Align.START)
+        vbox.append(lbl)
+        entry = Gtk.Entry()
+        entry.set_text(playlist.name)
+        entry.set_hexpand(True)
+        vbox.append(entry)
+
+        def do_rename(*a):
+            new_name = entry.get_text().strip()
+            if not new_name:
+                return
+            playlist.name = new_name
+            playlist.last_modified = time.time()
+            save_playlists(self._playlists)
+            self.detail_name.set_text(new_name)
+            self._rebuild_grid()
+            win.close()
+
+        entry.connect("activate", do_rename)
+        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        btn_box.set_halign(Gtk.Align.END)
+        rename_btn = Gtk.Button(label="Rename")
+        rename_btn.add_css_class("suggested-action")
+        rename_btn.connect("clicked", do_rename)
+        btn_box.append(rename_btn)
+        cancel = Gtk.Button(label="Cancel")
+        cancel.connect("clicked", lambda w: win.close())
+        btn_box.append(cancel)
+        vbox.append(btn_box)
+        win.present()
+
+    def _on_detail_rename(self):
+        idx = self._detail_playlist_index
+        if idx < 0 or idx >= len(self._playlists):
+            return
+        self._on_grid_rename(self._playlists[idx])
 
     def _on_delete(self, *args):
         idx = self._detail_playlist_index
@@ -615,8 +808,10 @@ class PlaylistsPage(Gtk.Box):
             if not src:
                 return
             pl = self._playlists[self._detail_playlist_index]
+            if not pl.uuid:
+                pl.uuid = uuid.uuid4().hex
             COVERS_DIR.mkdir(parents=True, exist_ok=True)
-            dst = str(COVERS_DIR / f"{pl.name}.jpg")
+            dst = str(COVERS_DIR / f"{pl.uuid}.jpg")
             try:
                 pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(src, 200, 200, True)
                 pixbuf.savev(dst, "jpeg", [], [])
@@ -672,6 +867,84 @@ class PlaylistsPage(Gtk.Box):
             self._playlists.append(pl)
         self._save()
         self._rebuild_grid()
+
+    def _on_import_spotify(self, *args):
+        parent = self.get_root() if self.get_root() else None
+
+        if not self._proc_mgr:
+            log.warning("[skimmer] No ProcessingManager available for Spotify import")
+            return
+
+        win = Gtk.Window(title="Import from Spotify", transient_for=parent, modal=True)
+        win.set_default_size(500, 120)
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        vbox.set_margin_start(12)
+        vbox.set_margin_end(12)
+        vbox.set_margin_top(12)
+        vbox.set_margin_bottom(12)
+        win.set_child(vbox)
+
+        lbl = Gtk.Label(label="Spotify Playlist URL:")
+        lbl.set_halign(Gtk.Align.START)
+        vbox.append(lbl)
+
+        entry = Gtk.Entry()
+        entry.set_placeholder_text("https://open.spotify.com/playlist/...")
+        entry.set_hexpand(True)
+        vbox.append(entry)
+
+        def on_start(*a):
+            url = entry.get_text().strip()
+            if not url:
+                return
+            spotify_id = url.split("/playlist/")[1].split("?")[0]
+            win.close()
+            task = self._proc_mgr.add_task("spotify_import", "Spotify Import", {"url": url})
+
+            def on_task_updated(t, status, progress, message):
+                if status == "completed":
+                    result = t.data.get("result")
+                    if result:
+                        playlists = load_playlists()
+                        name = result.get("name", "Spotify Playlist")
+                        existing = next((p for p in playlists if p.uuid == spotify_id), None)
+                        if existing:
+                            pl = existing
+                            pl.name = name
+                            pl.tracks.clear()
+                        else:
+                            pl = Playlist(name=name, uuid=spotify_id)
+                            playlists.append(pl)
+                        pl.last_modified = time.time()
+                        for trk in result["tracks"]:
+                            pl.tracks.append(PlaylistTrack(
+                                file_path=trk["file_path"],
+                                title=trk["title"],
+                                artist=trk["artist"],
+                                album=trk.get("album", ""),
+                                duration=trk.get("duration", 0),
+                            ))
+                        save_playlists(playlists)
+                        self._load()
+                        if self._on_library_refresh:
+                            self._on_library_refresh()
+
+            task.connect("updated", on_task_updated)
+
+        entry.connect("activate", on_start)
+
+        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        btn_box.set_halign(Gtk.Align.END)
+        start_btn = Gtk.Button(label="Start Import")
+        start_btn.add_css_class("suggested-action")
+        start_btn.connect("clicked", on_start)
+        btn_box.append(start_btn)
+        cancel = Gtk.Button(label="Cancel")
+        cancel.connect("clicked", lambda w: win.close())
+        btn_box.append(cancel)
+        vbox.append(btn_box)
+
+        win.present()
 
     def _on_export(self, *args):
         if self._detail_playlist_index < 0:

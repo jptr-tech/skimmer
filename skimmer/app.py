@@ -104,7 +104,12 @@ class SkimmerApp(Adw.Application):
         self.stack.add_titled(page, "library", "Library")
         self.pages["library"] = page
 
-        page = PlaylistsPage(self.config, player_bar=self.player_bar)
+        page = PlaylistsPage(
+            self.config,
+            player_bar=self.player_bar,
+            on_library_refresh=lambda: self.pages["library"]._refresh(),
+            proc_mgr=self.proc_mgr,
+        )
         self.stack.add_titled(page, "playlists", "Playlists")
         self.pages["playlists"] = page
 

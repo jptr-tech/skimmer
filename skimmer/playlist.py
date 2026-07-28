@@ -1,6 +1,7 @@
 import json
 import os
 import time
+import uuid
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
@@ -26,6 +27,7 @@ class Playlist:
     tracks: list[PlaylistTrack] = field(default_factory=list)
     last_modified: float = 0.0
     cover_path: str = ""
+    uuid: str = ""
 
 
 def _serialize(playlists: list[Playlist]) -> dict:
@@ -33,6 +35,7 @@ def _serialize(playlists: list[Playlist]) -> dict:
         "playlists": [
             {
                 "name": p.name,
+                "uuid": p.uuid,
                 "cover_path": p.cover_path,
                 "last_modified": p.last_modified,
                 "tracks": [
@@ -55,6 +58,7 @@ def _deserialize(data: dict) -> list[Playlist]:
     return [
         Playlist(
             name=entry["name"],
+            uuid=entry.get("uuid", uuid.uuid4().hex),
             cover_path=entry.get("cover_path", ""),
             last_modified=entry.get("last_modified", 0.0),
             tracks=[
@@ -152,4 +156,4 @@ def parse_m3u8(file_path: str) -> Playlist | None:
                     extinf = None
     except (OSError, UnicodeDecodeError):
         return None
-    return Playlist(name=name, tracks=tracks, last_modified=mtime)
+    return Playlist(name=name, tracks=tracks, last_modified=mtime, uuid=uuid.uuid4().hex)

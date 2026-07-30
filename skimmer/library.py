@@ -1,3 +1,4 @@
+import contextlib
 import os
 import threading
 
@@ -97,7 +98,9 @@ class LibraryPage(Gtk.Box):
             from beetsplug.fetchart import FetchArtPlugin
             fa = FetchArtPlugin()
             albums = list(self._beets_lib.albums())
-            fa.batch_fetch_art(self._beets_lib, albums, force=False, quiet=True)
+            with open(os.devnull, "w") as devnull:
+                with contextlib.redirect_stdout(devnull), contextlib.redirect_stderr(devnull):
+                    fa.batch_fetch_art(self._beets_lib, albums, force=False, quiet=True)
             log.info(f"[skimmer] fetchart done: checked {len(albums)} albums")
             GLib.idle_add(
                 self.status_label.set_text, f"fetchart: checked {len(albums)} albums"
@@ -119,23 +122,6 @@ class LibraryPage(Gtk.Box):
             log.info(f"[skimmer] Opened beets library at {lib_path}")
         except Exception as e:
             log.info(f"[skimmer] Failed to open beets library at {lib_path}: {e}")
-
-    def _remap_beets_path(self, beets_path):
-        if not beets_path:
-            return None
-        if os.path.exists(beets_path):
-            return beets_path
-        music_dir = os.path.abspath(os.path.expanduser(self.config.get("music_dir", "~/Music")))
-        idx = beets_path.find("/Music/")
-        if idx != -1:
-            remapped = os.path.join(music_dir, beets_path[idx + len("/Music/"):])
-            if os.path.exists(remapped):
-                log.info(f"[skimmer] Remapped beets path: {beets_path!r} -> {remapped!r}")
-                return remapped
-        return beets_path
-
-    def _resolve_album_path(self, album):
-        return self._remap_beets_path(os.fsdecode(album.path) if album.path else None)
 
     def _refresh(self, *args):
         self.flowbox.remove_all()
@@ -163,7 +149,7 @@ class LibraryPage(Gtk.Box):
                     continue
                 cover_path = None
                 try:
-                    album_path = self._resolve_album_path(album)
+                    album_path = os.fsdecode(album.path) if album.path else None
                     if album_path:
                         cover_path = find_cover(album_path)
                         if not cover_path:
@@ -223,7 +209,7 @@ class LibraryPage(Gtk.Box):
         for i, (artist, title, year, _, album) in enumerate(self._all_albums):
             cover_path = None
             try:
-                album_path = self._resolve_album_path(album)
+                album_path = os.fsdecode(album.path) if album.path else None
                 if album_path:
                     cover_path = find_cover(album_path)
             except Exception:
@@ -265,13 +251,13 @@ class LibraryPage(Gtk.Box):
                         "track": str(item.track or ""),
                         "title": item.title or "?",
                         "artist": item.artist or cover.artist,
-                        "file_path": self._remap_beets_path(os.fsdecode(item.path) if item.path else None),
+                        "file_path": os.fsdecode(item.path) if item.path else None,
                     }
                 )
         except Exception:
             tracks = []
 
-        album_path = self._resolve_album_path(album_obj)
+        album_path = os.fsdecode(album_obj.path) if album_obj and album_obj.path else None
 
         def reimport_cb():
             self._refresh()

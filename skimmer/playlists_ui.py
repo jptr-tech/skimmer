@@ -902,32 +902,35 @@ class PlaylistsPage(Gtk.Box):
             task = self._proc_mgr.add_task("spotify_import", "Spotify Import", {"url": url})
 
             def on_task_updated(t, status, progress, message):
-                if status == "completed":
-                    result = t.data.get("result")
-                    if result:
-                        playlists = load_playlists()
-                        name = result.get("name", "Spotify Playlist")
-                        existing = next((p for p in playlists if p.uuid == spotify_id), None)
-                        if existing:
-                            pl = existing
-                            pl.name = name
-                            pl.tracks.clear()
-                        else:
-                            pl = Playlist(name=name, uuid=spotify_id)
-                            playlists.append(pl)
-                        pl.last_modified = time.time()
-                        for trk in result["tracks"]:
-                            pl.tracks.append(PlaylistTrack(
-                                file_path=trk["file_path"],
-                                title=trk["title"],
-                                artist=trk["artist"],
-                                album=trk.get("album", ""),
-                                duration=trk.get("duration", 0),
-                            ))
-                        save_playlists(playlists)
-                        self._load()
-                        if self._on_library_refresh:
-                            self._on_library_refresh()
+                try:
+                    if status == "completed":
+                        result = t.data.get("result")
+                        if result:
+                            playlists = load_playlists()
+                            name = result.get("name", "Spotify Playlist")
+                            existing = next((p for p in playlists if p.uuid == spotify_id), None)
+                            if existing:
+                                pl = existing
+                                pl.name = name
+                                pl.tracks.clear()
+                            else:
+                                pl = Playlist(name=name, uuid=spotify_id)
+                                playlists.append(pl)
+                            pl.last_modified = time.time()
+                            for trk in result["tracks"]:
+                                pl.tracks.append(PlaylistTrack(
+                                    file_path=trk["file_path"],
+                                    title=trk["title"],
+                                    artist=trk["artist"],
+                                    album=trk.get("album", ""),
+                                    duration=trk.get("duration", 0),
+                                ))
+                            save_playlists(playlists)
+                            self._load()
+                            if self._on_library_refresh:
+                                self._on_library_refresh()
+                except Exception as e:
+                    log.exception(f"[skimmer] Spotify import callback failed: {e}")
 
             task.connect("updated", on_task_updated)
 

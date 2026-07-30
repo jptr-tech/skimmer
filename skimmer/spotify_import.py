@@ -223,7 +223,7 @@ class SpotifyImporter:
                     log.info(f"[skimmer] Copied to: {dest_path}")
 
                 except Exception as e:
-                    log.error(f"[skimmer] Download failed for {artist} - {title}: {e}", exc_info=True)
+                    log.warning(f"[skimmer] Download failed for {artist} - {title}: {e}")
                     failed.append(f"{artist} - {title}")
 
             # Import new files into beets

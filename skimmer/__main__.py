@@ -1,8 +1,5 @@
 import sys
 
-from skimmer.log import setup_logging
-setup_logging()
-
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -15,6 +12,8 @@ if settings:
 gi.require_version("Adw", "1")
 
 from skimmer.app import SkimmerApp
+from skimmer.log import setup_logging
+setup_logging()
 
 
 def main():

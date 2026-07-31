@@ -58,7 +58,7 @@ class SpotifyImporter:
         self._status("Fetching playlist metadata...")
         try:
             with SpotifyClient() as client:
-                playlist = client.get_playlist(url)
+                playlist = client.get_playlist(url, max_tracks=None)
         except Exception as e:
             log.error(f"[skimmer] spotifyscraper get_playlist failed: {e}", exc_info=True)
             raise SpotifyImportError(f"Failed to fetch playlist: {e}")

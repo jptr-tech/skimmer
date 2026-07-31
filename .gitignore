@@ -11,3 +11,4 @@ build/
 dist/
 *.spec
 .env
+.DS_Store

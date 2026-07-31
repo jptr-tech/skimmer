@@ -2,6 +2,7 @@ import os
 import shutil
 import threading
 import time
+import urllib.request
 import uuid
 
 import gi
@@ -925,6 +926,12 @@ class PlaylistsPage(Gtk.Box):
                                     album=trk.get("album", ""),
                                     duration=trk.get("duration", 0),
                                 ))
+                            cover_url = result.get("cover_url", "")
+                            if cover_url:
+                                COVERS_DIR.mkdir(parents=True, exist_ok=True)
+                                dst = str(COVERS_DIR / f"{spotify_id}.jpg")
+                                urllib.request.urlretrieve(cover_url, dst)
+                                pl.cover_path = dst
                             save_playlists(playlists)
                             self._load()
                             if self._on_library_refresh:

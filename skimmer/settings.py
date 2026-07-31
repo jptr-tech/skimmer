@@ -1,6 +1,6 @@
 import os
 
-from skimmer.config import resolve_path
+from skimmer.config import resolve_path, resolve_podcasts_dir
 from skimmer.gtk import Adw, GLib, Gtk
 
 _BEETS_KEYS = ("music_dir", "beets_lib")
@@ -39,12 +39,15 @@ class SettingsPage(Gtk.Box):
             ("beets_lib", "Beets Database", True),
             ("temp_dir", "Temp Download Dir", True),
             ("mount_path", "Mount Path", True),
+            ("podcasts_dir", "Podcasts Dir", True),
         ]:
             lbl_w = Gtk.Label(label=label_text, halign=Gtk.Align.START)
             grid.attach(lbl_w, 0, row, 1, 1)
 
             entry = Gtk.Entry()
             effective = resolve_path(config, key) if key in _BEETS_KEYS else config.get(key, "")
+            if key == "podcasts_dir" and not effective:
+                effective = resolve_podcasts_dir(config)
             entry.set_text(effective)
             entry.set_hexpand(True)
             grid.attach(entry, 1, row, 1, 1)

@@ -9,10 +9,12 @@ from skimmer.library import LibraryPage
 from skimmer.media_integration import create_integration
 from skimmer.player import PlayerBar
 from skimmer.playlists_ui import PlaylistsPage
+from skimmer.podcasts_ui import PodcastsPage
 from skimmer.processing import ProcessingPage
 from skimmer.scanner import BackgroundScanner
 from skimmer.search import SearchPage
 from skimmer.settings import SettingsPage
+from skimmer.style import setup_css
 from skimmer.worker import ProcessingManager, Task
 
 log = logging.getLogger(__name__)
@@ -65,6 +67,7 @@ class SkimmerApp(Adw.Application):
         win = Adw.ApplicationWindow(application=app)
         win.set_default_size(1100, 700)
         win.set_title("Skimmer")
+        setup_css()
 
         key_ctrl = Gtk.EventControllerKey()
         key_ctrl.connect("key-pressed", self._on_global_key)
@@ -100,6 +103,14 @@ class SkimmerApp(Adw.Application):
         )
         self.stack.add_titled(page, "playlists", "Playlists")
         self.pages["playlists"] = page
+
+        page = PodcastsPage(
+            self.config,
+            self.proc_mgr,
+            player_bar=self.player_bar,
+        )
+        self.stack.add_titled(page, "podcasts", "Podcasts")
+        self.pages["podcasts"] = page
 
         page = SearchPage(self.config, self.proc_mgr, player_bar=self.player_bar)
         self.stack.add_titled(page, "search", "Search")
@@ -175,7 +186,7 @@ class SkimmerApp(Adw.Application):
 
     def _on_playlists_page_changed(self, stack, pspec):
         child = stack.get_visible_child()
-        if child is self.pages.get("playlists"):
+        if child in (self.pages.get("playlists"), self.pages.get("podcasts")):
             child._load()
 
     def _on_mount_changed(self, *args):
@@ -365,6 +376,7 @@ class SkimmerApp(Adw.Application):
         self.scanner.config = config
         self.pages["library"].config = config
         self.pages["search"].config = config
+        self.pages["podcasts"].config = config
 
     def _on_global_key(self, ctrl, keyval, keycode, state):
         meta = state & Gdk.ModifierType.META_MASK

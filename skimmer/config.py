@@ -13,8 +13,11 @@ DEFAULT_CONFIG = {
     "beets_lib": "",
     "temp_dir": os.path.join(tempfile.gettempdir(), "skimmer"),
     "mount_path": "",
+    "podcasts_dir": "",
     "ytdlp_format": "bestaudio/best",
     "ytdlp_audio_format": "mp3",
+    "ytdlp_retry_wait": 60,
+    "ytdlp_max_retries": 4,
     "max_concurrent_downloads": 2,
     "scan_interval": 1800,
 }
@@ -49,6 +52,13 @@ def resolve_path(config, skimmer_key):
     if from_beets:
         return os.path.expanduser(from_beets)
     return os.path.expanduser(_BEETS_FALLBACKS[skimmer_key])
+
+
+def resolve_podcasts_dir(config):
+    stored = config.get("podcasts_dir", "")
+    if stored:
+        return os.path.expanduser(stored)
+    return os.path.expanduser("~/Podcasts")
 
 
 def load_config():

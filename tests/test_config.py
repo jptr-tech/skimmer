@@ -16,8 +16,11 @@ def test_default_config_keys():
         "beets_lib",
         "temp_dir",
         "mount_path",
+        "podcasts_dir",
         "ytdlp_format",
         "ytdlp_audio_format",
+        "ytdlp_retry_wait",
+        "ytdlp_max_retries",
         "max_concurrent_downloads",
         "scan_interval",
     }
@@ -29,8 +32,11 @@ def test_default_config_values():
     assert DEFAULT_CONFIG["beets_lib"] == ""
     assert DEFAULT_CONFIG["temp_dir"] == os.path.join(tempfile.gettempdir(), "skimmer")
     assert DEFAULT_CONFIG["mount_path"] == ""
+    assert DEFAULT_CONFIG["podcasts_dir"] == ""
     assert DEFAULT_CONFIG["ytdlp_format"] == "bestaudio/best"
     assert DEFAULT_CONFIG["ytdlp_audio_format"] == "mp3"
+    assert DEFAULT_CONFIG["ytdlp_retry_wait"] == 60
+    assert DEFAULT_CONFIG["ytdlp_max_retries"] == 4
     assert DEFAULT_CONFIG["max_concurrent_downloads"] == 2
     assert DEFAULT_CONFIG["scan_interval"] == 1800
 

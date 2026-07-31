@@ -20,7 +20,6 @@ from skimmer.playlist import (
     resolve_cover,
     save_playlists,
 )
-from skimmer.spotify_import import SpotifyImporter, SpotifyImportError
 
 log = logging.getLogger(__name__)
 
@@ -143,117 +142,6 @@ class AddTracksDialog(Gtk.Window):
         tracks = [self._results[i] for i in sorted(self._selected)]
         self._on_add(tracks)
         self.close()
-
-
-class SpotifyImportDialog(Gtk.Window):
-    def __init__(self, parent, config, on_complete):
-        super().__init__(title="Import from Spotify", transient_for=parent, modal=True)
-        self._config = config
-        self._on_complete = on_complete
-        self._importer = SpotifyImporter(config)
-        self.set_default_size(500, 200)
-
-        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        vbox.set_margin_start(12)
-        vbox.set_margin_end(12)
-        vbox.set_margin_top(12)
-        vbox.set_margin_bottom(12)
-        self.set_child(vbox)
-
-        lbl = Gtk.Label(label="Spotify Playlist URL:")
-        lbl.set_halign(Gtk.Align.START)
-        vbox.append(lbl)
-
-        self.entry = Gtk.Entry()
-        self.entry.set_placeholder_text("https://open.spotify.com/playlist/...")
-        self.entry.set_hexpand(True)
-        self.entry.connect("activate", self._on_start)
-        vbox.append(self.entry)
-
-        self.status_lbl = Gtk.Label(label="")
-        self.status_lbl.set_halign(Gtk.Align.START)
-        self.status_lbl.add_css_class("dim-label")
-        vbox.append(self.status_lbl)
-
-        self.progress_bar = Gtk.ProgressBar()
-        self.progress_bar.set_visible(False)
-        vbox.append(self.progress_bar)
-
-        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        btn_box.set_halign(Gtk.Align.END)
-
-        self.start_btn = Gtk.Button(label="Start Import")
-        self.start_btn.add_css_class("suggested-action")
-        self.start_btn.connect("clicked", self._on_start)
-        btn_box.append(self.start_btn)
-
-        self.cancel_btn = Gtk.Button(label="Cancel")
-        self.cancel_btn.set_visible(False)
-        self.cancel_btn.connect("clicked", self._on_cancel)
-        btn_box.append(self.cancel_btn)
-
-        self.close_btn = Gtk.Button(label="Close")
-        self.close_btn.set_visible(False)
-        self.close_btn.connect("clicked", lambda b: self.close())
-        btn_box.append(self.close_btn)
-
-        vbox.append(btn_box)
-        self.present()
-
-    def _on_start(self, *args):
-        url = self.entry.get_text().strip()
-        if not url:
-            return
-        self.start_btn.set_visible(False)
-        self.cancel_btn.set_visible(True)
-        self.entry.set_sensitive(False)
-        self.progress_bar.set_visible(True)
-        self.progress_bar.set_fraction(0.0)
-        self.status_lbl.set_text("Starting...")
-        self._importer.set_callbacks(
-            on_status=self._on_status,
-            on_progress=self._on_progress,
-        )
-        threading.Thread(target=self._import_thread, args=(url,), daemon=True).start()
-
-    def _import_thread(self, url):
-        try:
-            result = self._importer.import_playlist(url)
-            GLib.idle_add(self._on_import_done, result, None)
-        except SpotifyImportError as e:
-            GLib.idle_add(self._on_import_done, None, str(e))
-        except Exception as e:
-            GLib.idle_add(self._on_import_done, None, f"Error: {e}")
-
-    def _on_status(self, msg):
-        self.status_lbl.set_text(msg)
-
-    def _on_progress(self, current, total, msg):
-        if total > 0:
-            self.progress_bar.set_fraction(current / total)
-        if msg:
-            self.status_lbl.set_text(msg)
-
-    def _on_cancel(self, *args):
-        self._importer.cancel()
-        self.status_lbl.set_text("Cancelling...")
-
-    def _on_import_done(self, result, error):
-        self.progress_bar.set_visible(False)
-        self.cancel_btn.set_visible(False)
-        self.close_btn.set_visible(True)
-        if error:
-            self.status_lbl.set_text(f"Import failed: {error}")
-            return
-        self.status_lbl.set_text(
-            f"Imported {result['matched'] + result['downloaded']} tracks "
-            f"({result['matched']} from library, {result['downloaded']} downloaded)"
-        )
-        if result["failed"]:
-            self.status_lbl.set_label(
-                self.status_lbl.get_label() + f", {len(result['failed'])} failed"
-            )
-        self._on_complete(result)
 
 
 COVER_SIZE = 150

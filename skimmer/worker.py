@@ -20,6 +20,7 @@ from skimmer.playlist import (
     parse_m3u8,
     save_playlists,
 )
+from skimmer.podcasts import PodcastDownloader
 from skimmer.spotify_import import SpotifyImporter
 
 log = logging.getLogger(__name__)
@@ -86,6 +87,8 @@ class ProcessingManager(GObject.Object):
                     self._do_sync(task)
                 elif task.type == "spotify_import":
                     self._do_spotify_import(task)
+                elif task.type == "podcast":
+                    self._do_podcast(task)
                 task.status = "completed"
                 task.progress = 1.0
                 task.emit("updated", task.status, task.progress, "")
@@ -462,6 +465,7 @@ class ProcessingManager(GObject.Object):
         log.info(f"[skimmer] Sync: copy finished ({completed} files)")
         GLib.idle_add(task.emit, "updated", task.status, 0.85, "Syncing playlists...")
         self._sync_playlists(task, dst)
+        self._sync_podcasts(task)
         GLib.idle_add(task.emit, "updated", task.status, 0.95, "Saving cache...")
         synccache.update_cache(cache_path, src)
         log.info(f"[skimmer] Sync: cache saved to {cache_path}")
@@ -529,6 +533,21 @@ class ProcessingManager(GObject.Object):
         else:
             log.info("[skimmer] Sync: playlists already up to date")
 
+    def _sync_podcasts(self, task):
+        mount_path = self.config.get("mount_path", "")
+        if not mount_path:
+            return
+        from skimmer.config import resolve_podcasts_dir
+
+        podcasts_dir = resolve_podcasts_dir(self.config)
+        if not os.path.isdir(podcasts_dir):
+            log.info("[skimmer] Sync: no podcasts dir, skipping podcast sync")
+            return
+        pod_dst = os.path.join(mount_path, "Podcasts")
+        os.makedirs(pod_dst, exist_ok=True)
+        shutil.copytree(podcasts_dir, pod_dst, dirs_exist_ok=True)
+        log.info(f"[skimmer] Sync: podcasts copied to {pod_dst}")
+
     def _do_spotify_import(self, task):
         url = task.data.get("url", "")
         if not url:
@@ -546,7 +565,16 @@ class ProcessingManager(GObject.Object):
             task.progress = frac
             GLib.idle_add(task.emit, "updated", task.status, frac, msg)
 
-        importer.set_callbacks(on_status=emit_status, on_progress=emit_progress)
+        def emit_waiting(active, seconds):
+            status = "waiting" if active else "running"
+            msg = f"Waiting for rate limit to disperse ({seconds}s)..." if active else ""
+            GLib.idle_add(task.emit, "updated", status, task.progress, msg)
+
+        importer.set_callbacks(
+            on_status=emit_status,
+            on_progress=emit_progress,
+            on_waiting=emit_waiting,
+        )
 
         result = importer.import_playlist(url)
         task.data["result"] = result
@@ -554,3 +582,24 @@ class ProcessingManager(GObject.Object):
         log.info(
             f"[skimmer] Spotify import complete: {result['name']}, {len(result['tracks'])} tracks"
         )
+
+    def _do_podcast(self, task):
+        url = task.data.get("url", "")
+        if not url:
+            raise ValueError("No URL provided for podcast download")
+
+        downloader = PodcastDownloader(self.config)
+
+        def emit_status(msg):
+            GLib.idle_add(task.emit, "updated", task.status, task.progress, msg)
+
+        def emit_progress(fraction, msg):
+            task.progress = fraction
+            GLib.idle_add(task.emit, "updated", task.status, fraction, msg)
+
+        downloader.set_callbacks(on_status=emit_status, on_progress=emit_progress)
+
+        result = downloader.download(url)
+        task.data["result"] = result
+
+        log.info(f"[skimmer] Podcast download complete: {result['title']}")

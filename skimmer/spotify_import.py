@@ -2,6 +2,7 @@ import logging
 import os
 import shutil
 import tempfile
+import time
 import urllib.request
 
 import yt_dlp
@@ -16,6 +17,11 @@ from skimmer.config import resolve_path
 log = logging.getLogger(__name__)
 
 
+def _is_bot_check(exc):
+    """True when yt-dlp hit YouTube's 'Sign in to confirm you're not a bot' block."""
+    return "sign in to confirm" in str(exc).lower()
+
+
 class SpotifyImportError(Exception):
     pass
 
@@ -27,9 +33,10 @@ class SpotifyImporter:
         self._on_status = None
         self._on_progress = None
 
-    def set_callbacks(self, on_status=None, on_progress=None):
+    def set_callbacks(self, on_status=None, on_progress=None, on_waiting=None):
         self._on_status = on_status
         self._on_progress = on_progress
+        self._on_waiting = on_waiting
 
     def cancel(self):
         self._cancelled = True
@@ -41,6 +48,18 @@ class SpotifyImporter:
     def _progress(self, current, total, msg=""):
         if self._on_progress:
             GLib.idle_add(self._on_progress, current, total, msg)
+
+    def _waiting(self, active, seconds):
+        if self._on_waiting:
+            GLib.idle_add(self._on_waiting, active, seconds)
+
+    def _wait_cancellable(self, seconds):
+        remaining = int(seconds)
+        while remaining > 0:
+            if self._cancelled:
+                raise SpotifyImportError("Cancelled")
+            time.sleep(1)
+            remaining -= 1
 
     def import_playlist(self, url):
         self._cancelled = False
@@ -174,9 +193,34 @@ class SpotifyImporter:
                     ],
                 }
 
+                max_retries = int(self.config.get("ytdlp_max_retries", 4))
+                base_wait = int(self.config.get("ytdlp_retry_wait", 60))
+
                 try:
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        ydl.download([search_query])
+                    attempt = 0
+                    while True:
+                        try:
+                            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                                ydl.download([search_query])
+                            break
+                        except Exception as e:
+                            if _is_bot_check(e) and attempt < max_retries:
+                                wait = base_wait * (2**attempt)
+                                log.warning(
+                                    f"[skimmer] YouTube bot-check on '{artist} - {title}', "
+                                    f"waiting {wait}s then retrying"
+                                )
+                                self._waiting(True, wait)
+                                self._wait_cancellable(wait)
+                                self._waiting(False, 0)
+                                attempt += 1
+                            elif _is_bot_check(e):
+                                raise SpotifyImportError(
+                                    "YouTube is temporarily blocking downloads (bot check). "
+                                    "Wait a while and try again."
+                                )
+                            else:
+                                raise
 
                     # Find the downloaded file
                     found_file = None
@@ -223,6 +267,8 @@ class SpotifyImporter:
 
                     log.info(f"[skimmer] Copied to: {dest_path}")
 
+                except SpotifyImportError:
+                    raise
                 except Exception as e:
                     log.warning(f"[skimmer] Download failed for {artist} - {title}: {e}")
                     failed.append(f"{artist} - {title}")

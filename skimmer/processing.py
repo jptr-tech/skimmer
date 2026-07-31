@@ -99,6 +99,7 @@ class TaskRow(Gtk.Box):
         self.progress_bar.set_fraction(progress)
 
         if status == "running":
+            self.progress_bar.remove_css_class("skimmer-waiting")
             if message:
                 if "/" in message:
                     self.progress_text.set_text(message)
@@ -118,7 +119,13 @@ class TaskRow(Gtk.Box):
             else:
                 self.progress_bar.set_text("...")
                 self.progress_text.set_text("")
+        elif status == "waiting":
+            self.progress_bar.add_css_class("skimmer-waiting")
+            if message:
+                self.progress_text.set_text(message)
+                self.progress_bar.set_text("")
         elif status == "completed":
+            self.progress_bar.remove_css_class("skimmer-waiting")
             self.progress_bar.set_text("Done")
             self.progress_bar.remove_css_class("running")
             self.progress_bar.add_css_class("success")
@@ -126,6 +133,7 @@ class TaskRow(Gtk.Box):
             if message and message != "Already up to date":
                 self.status_desc.set_text(message)
         elif status == "failed":
+            self.progress_bar.remove_css_class("skimmer-waiting")
             self.progress_bar.set_text("Failed")
             self.progress_bar.add_css_class("error")
             self.status_label.set_text(f"Error: {task.error}")

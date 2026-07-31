@@ -21,6 +21,9 @@ dev = ["pytest>=7.0"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+filterwarnings = [
+  "ignore::DeprecationWarning:gi\\.",
+]
 
 [tool.setuptools.packages.find]
 include = ["skimmer*"]

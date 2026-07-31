@@ -111,8 +111,12 @@ class SpotifyImporter:
                 safe_title = title.replace("'", "")
                 try:
                     found = list(lib.items(f"artist:{safe_artist} title:{safe_title}"))
-                    if found:
-                        found_path = os.fsdecode(found[0].path)
+                    for f in found:
+                        path = os.fsdecode(f.path)
+                        if os.path.isfile(path) and os.path.getsize(path) > 0:
+                            found_path = path
+                            break
+                    if found_path:
                         matched += 1
                 except Exception:
                     pass
@@ -227,7 +231,7 @@ class SpotifyImporter:
                     for fname in os.listdir(temp_dir):
                         if fname.startswith(f"{idx:04d}-"):
                             fpath = os.path.join(temp_dir, fname)
-                            if os.path.isfile(fpath):
+                            if os.path.isfile(fpath) and os.path.getsize(fpath) > 0:
                                 found_file = fpath
                                 break
 
@@ -334,7 +338,7 @@ class SpotifyImporter:
     def _import_to_beets(self, lib, music_dir, track_info_list):
         seen_albums = {}
         for fpath, artist, album in track_info_list:
-            if not os.path.exists(fpath):
+            if not os.path.exists(fpath) or os.path.getsize(fpath) == 0:
                 continue
             try:
                 item = Item.from_path(fpath)

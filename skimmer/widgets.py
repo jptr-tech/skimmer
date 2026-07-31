@@ -42,7 +42,7 @@ class AlbumCover(Gtk.FlowBoxChild):
         album,
         year,
         cover_path=None,
-        cover_url=None,
+        cover_url: str | None = None,
         data=None,
         size=COVER_SIZE,
         on_delete=None,
@@ -181,8 +181,12 @@ class AlbumCover(Gtk.FlowBoxChild):
         self._set_placeholder()
 
     def _load_url_cover(self):
+        url = self.cover_url
+        if not url:
+            GLib.idle_add(self._set_placeholder)
+            return
         try:
-            data = urllib.request.urlopen(self.cover_url, timeout=10).read()
+            data = urllib.request.urlopen(url, timeout=10).read()
         except Exception:
             GLib.idle_add(self._set_placeholder)
             return

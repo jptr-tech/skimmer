@@ -1,6 +1,4 @@
-import gi
-gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk, GLib
+from skimmer.gtk import Gtk
 
 
 class ProcessingPage(Gtk.Box):
@@ -105,7 +103,9 @@ class TaskRow(Gtk.Box):
                 if "/" in message:
                     self.progress_text.set_text(message)
                     self.progress_bar.set_text("")
-                elif any(kw in message.lower() for kw in ["indexing", "syncing", "saving", "files"]):
+                elif any(
+                    kw in message.lower() for kw in ["indexing", "syncing", "saving", "files"]
+                ):
                     self.status_desc.set_text(message)
                     self.progress_bar.set_text("")
                     self.progress_text.set_text("")

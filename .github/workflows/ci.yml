@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint-typecheck-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Install system deps (GTK4 / libadwaita / GStreamer for pygobject-stubs)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            python3-dev \
+            build-essential \
+            pkg-config \
+            gobject-introspection \
+            libgirepository1.0-dev \
+            libgtk-4-dev \
+            libadwaita-1-dev \
+            libgstreamer1.0-dev \
+            libgstreamer-plugins-base1.0-dev
+
+      - name: Sync dependencies
+        run: uv sync
+
+      - name: Ruff check
+        run: uv run ruff check
+
+      - name: Ruff format check
+        run: uv run ruff format --check
+
+      - name: Pyright
+        run: uv run pyright
+
+      - name: Tests
+        run: uv run pytest -q

@@ -1,13 +1,5 @@
-import sys
 import logging
-import os
-from decimal import Decimal
-from pathlib import Path
-
-import gi
-
-gi.require_version("Gst", "1.0")
-from gi.repository import Gst
+import sys
 
 logger = logging.getLogger(__name__)
 

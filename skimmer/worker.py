@@ -1,3 +1,4 @@
+import logging
 import os
 import queue
 import shutil
@@ -5,7 +6,6 @@ import sys
 import threading
 import time
 import uuid
-from pathlib import Path
 
 import yt_dlp
 from beets import context as beets_context
@@ -14,11 +14,16 @@ from beets.util import bytestring_path
 from gi.repository import GLib, GObject
 
 from skimmer import synccache
-from skimmer.playlist import Playlist, PlaylistTrack, load_playlists, save_playlists, export_m3u8, parse_m3u8
+from skimmer.playlist import (
+    export_m3u8,
+    load_playlists,
+    parse_m3u8,
+    save_playlists,
+)
 from skimmer.spotify_import import SpotifyImporter
 
-import logging
 log = logging.getLogger(__name__)
+
 
 class Task(GObject.Object):
     __gsignals__ = {
@@ -107,15 +112,19 @@ class ProcessingManager(GObject.Object):
             vid = track.get("videoId")
             if vid:
                 vid_to_idx[vid] = i
-        log.info(f"[skimmer] Downloading {album['artist']} - {album['title']} ({total} tracks) to {album_dir}")
+        log.info(
+            f"[skimmer] Downloading {album['artist']} - {album['title']} ({total} tracks) to {album_dir}"
+        )
 
         for i, track in enumerate(album["tracks"]):
-            log.info(f"[skimmer]   Track {i+1}/{total}: {track.get('title', '?')} (videoId: {track.get('videoId', 'none')})")
+            log.info(
+                f"[skimmer]   Track {i + 1}/{total}: {track.get('title', '?')} (videoId: {track.get('videoId', 'none')})"
+            )
 
         ffmpeg_location_dir = None
-        meipass = getattr(sys, '_MEIPASS', None)
+        meipass = getattr(sys, "_MEIPASS", None)
         if meipass:
-            ffmpeg_path = shutil.which('ffmpeg') or os.path.join(meipass, 'ffmpeg')
+            ffmpeg_path = shutil.which("ffmpeg") or os.path.join(meipass, "ffmpeg")
             if os.path.exists(ffmpeg_path):
                 log.info(f"[skimmer] Using bundled ffmpeg at {ffmpeg_path}")
                 ffmpeg_location_dir = os.path.dirname(ffmpeg_path)
@@ -123,21 +132,21 @@ class ProcessingManager(GObject.Object):
         ydl_opts = {"format": self.config["ytdlp_format"]}
         if ffmpeg_location_dir:
             ydl_opts["ffmpeg_location"] = ffmpeg_location_dir
-        ydl_opts.update({
-            "outtmpl": os.path.join(album_dir, "%(autonumber)02d - %(title)s.%(ext)s"),
-            "quiet": True,
-            "no_warnings": True,
-            "extract_flat": False,
-            "postprocessors": [
-                {
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": self.config["ytdlp_audio_format"],
-                }
-            ],
-            "progress_hooks": [
-                lambda d: self._ytdlp_hook(d, task, total, vid_to_idx)
-            ],
-        })
+        ydl_opts.update(
+            {
+                "outtmpl": os.path.join(album_dir, "%(autonumber)02d - %(title)s.%(ext)s"),
+                "quiet": True,
+                "no_warnings": True,
+                "extract_flat": False,
+                "postprocessors": [
+                    {
+                        "key": "FFmpegExtractAudio",
+                        "preferredcodec": self.config["ytdlp_audio_format"],
+                    }
+                ],
+                "progress_hooks": [lambda d: self._ytdlp_hook(d, task, total, vid_to_idx)],
+            }
+        )
 
         urls = []
         for track in album["tracks"]:
@@ -147,7 +156,9 @@ class ProcessingManager(GObject.Object):
             else:
                 log.warning(f"[skimmer]   WARNING: No videoId for track: {track.get('title', '?')}")
 
-        log.info(f"[skimmer] Starting yt-dlp with {len(urls)} URLs, format={self.config['ytdlp_format']}")
+        log.info(
+            f"[skimmer] Starting yt-dlp with {len(urls)} URLs, format={self.config['ytdlp_format']}"
+        )
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download(urls)
         log.info(f"[skimmer] Download complete: {album['artist']} - {album['title']}")
@@ -168,8 +179,11 @@ class ProcessingManager(GObject.Object):
                 if overall > task.progress:
                     task.progress = overall
                 GLib.idle_add(
-                    task.emit, "updated", task.status, task.progress,
-                    f"Track {idx+1}/{total}: {info.get('title', '?')}"
+                    task.emit,
+                    "updated",
+                    task.status,
+                    task.progress,
+                    f"Track {idx + 1}/{total}: {info.get('title', '?')}",
                 )
         elif d["status"] == "finished":
             info = d.get("info_dict", {})
@@ -179,8 +193,11 @@ class ProcessingManager(GObject.Object):
                 overall = sum(task._dl_progress) / total
                 task.progress = overall
                 GLib.idle_add(
-                    task.emit, "updated", task.status, task.progress,
-                    f"Track {idx+1}/{total}: {info.get('title', '?')}"
+                    task.emit,
+                    "updated",
+                    task.status,
+                    task.progress,
+                    f"Track {idx + 1}/{total}: {info.get('title', '?')}",
                 )
 
     def _do_import(self, task):
@@ -202,9 +219,10 @@ class ProcessingManager(GObject.Object):
         album_title = task.data.get("title", "")
         if artist and album_title:
             from mutagen import File as MutagenFile
-            from mutagen.id3 import ID3NoHeaderError
             from mutagen.easyid3 import EasyID3
+            from mutagen.id3 import ID3NoHeaderError
             from mutagen.mp4 import MP4
+
             tagged = 0
             for fname in files:
                 fpath = os.path.join(album_dir, fname)
@@ -222,9 +240,11 @@ class ProcessingManager(GObject.Object):
                         audio = MP4(fpath)
                     elif ext == ".flac":
                         from mutagen.flac import FLAC
+
                         audio = FLAC(fpath)
                     elif ext == ".opus":
                         from mutagen.oggopus import OggOpus
+
                         audio = OggOpus(fpath)
                     else:
                         continue
@@ -235,15 +255,19 @@ class ProcessingManager(GObject.Object):
                     tagged += 1
                 except Exception as e:
                     log.warning(f"[skimmer]   Warning: could not tag {fname}: {e}")
-            log.info(f"[skimmer] Tagged {tagged}/{len(files)} files with artist={artist}, album={album_title}")
+            log.info(
+                f"[skimmer] Tagged {tagged}/{len(files)} files with artist={artist}, album={album_title}"
+            )
 
-        log.info(f"[skimmer] Copying files to music library...")
+        log.info("[skimmer] Copying files to music library...")
         task.emit("updated", task.status, 0.0, "Copying to music library...")
 
-        album_dst = os.path.join(music_dir, artist, album_title) if artist and album_title else album_dir
+        album_dst = (
+            os.path.join(music_dir, artist, album_title) if artist and album_title else album_dir
+        )
         os.makedirs(album_dst, exist_ok=True)
 
-        audio_exts = {'.mp3', '.flac', '.ogg', '.opus', '.m4a', '.mp4', '.m4b', '.wav'}
+        audio_exts = {".mp3", ".flac", ".ogg", ".opus", ".m4a", ".mp4", ".m4b", ".wav"}
         copied = []
         for fname in files:
             ext = os.path.splitext(fname)[1].lower()
@@ -274,6 +298,7 @@ class ProcessingManager(GObject.Object):
                 # Try beets autotag with MusicBrainz, fall back to track metadata
                 try:
                     from beets.autotag.match import tag_album
+
                     album_items = list(album.items())
                     _, _, proposal = tag_album(
                         album_items, search_artist=artist, search_name=album_title
@@ -281,13 +306,15 @@ class ProcessingManager(GObject.Object):
                     if proposal and proposal.candidates:
                         match = proposal.candidates[0]
                         match.apply_metadata()
-                        for item in match.mapping:
+                        for item in match.mapping:  # pyright: ignore[reportAttributeAccessIssue]
                             item.try_write()
                             item.store()
                         album.albumartist = match.info.artist
                         album.album = match.info.album
                         album.store()
-                        log.info(f"[skimmer] Autotag matched: {match.info.artist} - {match.info.album}")
+                        log.info(
+                            f"[skimmer] Autotag matched: {match.info.artist} - {match.info.album}"
+                        )
                     else:
                         raise ValueError("No MusicBrainz candidates")
                 except Exception as autotag_err:
@@ -297,7 +324,7 @@ class ProcessingManager(GObject.Object):
                         for i, item in enumerate(album.items()):
                             if i < len(tracks):
                                 track = tracks[i]
-                                item.title = track.get("title", f"Track {i+1}")
+                                item.title = track.get("title", f"Track {i + 1}")
                                 item.track = i + 1
                                 item.tracktotal = len(tracks)
                                 item.store()
@@ -305,30 +332,37 @@ class ProcessingManager(GObject.Object):
                                     item.try_write()
                                 except Exception:
                                     pass
-                        log.info(f"[skimmer] Set track metadata from album data ({len(tracks)} tracks)")
+                        log.info(
+                            f"[skimmer] Set track metadata from album data ({len(tracks)} tracks)"
+                        )
 
                 try:
                     from beetsplug.fetchart import FetchArtPlugin
+
                     fa = FetchArtPlugin()
                     fa.batch_fetch_art(lib, [album], force=False, quiet=True)
                 except Exception as fe:
                     log.warning(f"[skimmer] fetchart for new album failed: {fe}")
 
             task.progress = 1.0
-            log.info(f"[skimmer] Import complete")
+            log.info("[skimmer] Import complete")
 
             beets_query = f"album:{album_title} artist:{artist}"
             found = list(lib.items(beets_query))
             if found:
-                log.info(f"[skimmer] Verified: {len(found)} tracks in library for {artist} - {album_title}")
+                log.info(
+                    f"[skimmer] Verified: {len(found)} tracks in library for {artist} - {album_title}"
+                )
             else:
-                log.warning(f"[skimmer] WARNING: verification found no tracks for {artist} - {album_title}")
+                log.warning(
+                    f"[skimmer] WARNING: verification found no tracks for {artist} - {album_title}"
+                )
         except Exception as e:
             log.error(f"[skimmer] Beets import error: {e}")
             raise
         finally:
             shutil.rmtree(album_dir, ignore_errors=True)
-            log.info(f"[skimmer] Cleaned up temp dir")
+            log.info("[skimmer] Cleaned up temp dir")
 
     def _do_sync(self, task):
         src = self.config["music_dir"]
@@ -351,7 +385,9 @@ class ProcessingManager(GObject.Object):
 
         if cached is not None:
             added, modified, deleted = synccache.get_changes(src, cached)
-            log.info(f"[skimmer] Sync: diff from cache — +{len(added)} ~{len(modified)} -{len(deleted)}")
+            log.info(
+                f"[skimmer] Sync: diff from cache — +{len(added)} ~{len(modified)} -{len(deleted)}"
+            )
             if modified:
                 for p in sorted(modified)[:5]:
                     log.info(f"[skimmer] Sync:   modified: {p}")
@@ -413,8 +449,9 @@ class ProcessingManager(GObject.Object):
             if tick != last_tick:
                 last_tick = tick
                 task.progress = pct
-                GLib.idle_add(task.emit, "updated", task.status, pct,
-                              f"Copying... ({completed}/{total})")
+                GLib.idle_add(
+                    task.emit, "updated", task.status, pct, f"Copying... ({completed}/{total})"
+                )
             if completed <= 5 or completed % 50 == 0:
                 log.info(f"[skimmer] Sync:   {completed}/{total}: {p[:120]}")
 
@@ -514,4 +551,6 @@ class ProcessingManager(GObject.Object):
         result = importer.import_playlist(url)
         task.data["result"] = result
 
-        log.info(f"[skimmer] Spotify import complete: {result['name']}, {len(result['tracks'])} tracks")
+        log.info(
+            f"[skimmer] Spotify import complete: {result['name']}, {len(result['tracks'])} tracks"
+        )

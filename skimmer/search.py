@@ -1,14 +1,9 @@
 import threading
 
-import gi
-
-gi.require_version("Adw", "1")
-gi.require_version("Gtk", "4.0")
-from gi.repository import Adw, Gtk, GLib
-
 from ytmusicapi import YTMusic
 
-from skimmer.widgets import AlbumCover, AlbumDetail, find_cover
+from skimmer.gtk import Adw, GLib, Gtk
+from skimmer.widgets import AlbumCover, AlbumDetail
 
 
 class SearchPage(Gtk.Box):
@@ -29,9 +24,7 @@ class SearchPage(Gtk.Box):
         self._clamp.set_tightening_threshold(400)
         search_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         self.search_entry = Gtk.Entry()
-        self.search_entry.set_placeholder_text(
-            "Search YouTube Music: Artist or Artist - Album..."
-        )
+        self.search_entry.set_placeholder_text("Search YouTube Music: Artist or Artist - Album...")
         self.search_entry.set_hexpand(True)
         self.search_entry.connect("activate", self._do_search)
         search_btn = Gtk.Button(label="Search")
@@ -131,9 +124,7 @@ class SearchPage(Gtk.Box):
 
     def _show_album_detail(self, result):
         self._current_album_data = result
-        self.status_label = Gtk.Label(
-            label=f"Loading {result['artist']} - {result['album']}..."
-        )
+        self.status_label = Gtk.Label(label=f"Loading {result['artist']} - {result['album']}...")
         self.stack.add_named(self.status_label, "status")
         self.stack.set_visible_child_name("status")
 
@@ -157,9 +148,7 @@ class SearchPage(Gtk.Box):
                     {
                         "track": str(t.get("trackNumber", "")),
                         "title": t.get("title", "?"),
-                        "artist": ", ".join(
-                            a.get("name", "") for a in t.get("artists", [])
-                        )
+                        "artist": ", ".join(a.get("name", "") for a in t.get("artists", []))
                         or result["artist"],
                     }
                 )

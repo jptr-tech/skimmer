@@ -1,22 +1,19 @@
 import sys
 
-import gi
-
-gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk
-
-settings = Gtk.Settings.get_default()
-if settings:
-    settings.set_property("gtk-application-prefer-dark-theme", False)
-
-gi.require_version("Adw", "1")
-
 from skimmer.app import SkimmerApp
+from skimmer.gtk import Gtk
 from skimmer.log import setup_logging
-setup_logging()
+
+
+def _set_theme_pref():
+    settings = Gtk.Settings.get_default()
+    if settings:
+        settings.set_property("gtk-application-prefer-dark-theme", False)
 
 
 def main():
+    setup_logging()
+    _set_theme_pref()
     app = SkimmerApp()
     return app.run(sys.argv)
 

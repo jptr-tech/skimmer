@@ -30,6 +30,7 @@ def _beets_config_value(skimmer_key):
     beets_key = "directory" if skimmer_key == "music_dir" else "library"
     try:
         from beets import config as beets_config
+
         return (
             beets_config[beets_key].as_filename()
             if beets_key == "library"

@@ -1,12 +1,7 @@
 import os
 
-import gi
-
-gi.require_version("Adw", "1")
-gi.require_version("Gtk", "4.0")
-gi.require_version("GdkPixbuf", "2.0")
-gi.require_version("Gst", "1.0")
-from gi.repository import Adw, Gtk, GLib, Gst, GdkPixbuf
+from skimmer.gst import Gst
+from skimmer.gtk import Adw, GdkPixbuf, GLib, Gtk
 
 Gst.init(None)
 
@@ -154,18 +149,14 @@ class PlayerBar(Gtk.Box):
         self._current_cover_path = cover_path
         if cover_path and os.path.exists(cover_path):
             try:
-                pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
-                    cover_path, 28, 28, True
-                )
+                pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(cover_path, 28, 28, True)
                 self.cover_thumb.set_from_pixbuf(pixbuf)
                 return
             except Exception:
                 pass
         self.cover_thumb.set_from_icon_name("audio-x-generic-symbolic")
 
-    def play_file(
-        self, path, title=None, artist=None, track_idx=0, tracks=None, cover_path=None
-    ):
+    def play_file(self, path, title=None, artist=None, track_idx=0, tracks=None, cover_path=None):
         if not os.path.exists(path):
             return
 

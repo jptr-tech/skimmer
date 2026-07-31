@@ -31,7 +31,7 @@ def _quick_hash(path):
 
 def load_cache(cache_path, music_dir):
     try:
-        with open(cache_path, "r", encoding="utf-8") as f:
+        with open(cache_path, encoding="utf-8") as f:
             data = json.load(f)
         if data.get("music_dir") == music_dir:
             files = data["files"]
@@ -72,7 +72,7 @@ def get_changes(music_dir, cached_files):
     deleted = cached - current_set
 
     modified = set()
-    for p in (cached & current_set):
+    for p in cached & current_set:
         cur = current[p]
         cached = cached_files[p]
         if cur[0] == cached[0] and cur[1] == cached[1]:

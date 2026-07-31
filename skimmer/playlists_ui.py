@@ -1,36 +1,28 @@
+import logging
 import os
-import shutil
 import threading
 import time
 import urllib.request
 import uuid
 
-import gi
-
-gi.require_version("Adw", "1")
-gi.require_version("Gtk", "4.0")
-gi.require_version("Gdk", "4.0")
-gi.require_version("GdkPixbuf", "2.0")
-from gi.repository import Adw, Gtk, GLib, Gdk, GdkPixbuf, Gio, Pango
-
 from beets import context as beets_context
 from beets.library import Library
 from beets.util import bytestring_path
 
-import logging
-log = logging.getLogger(__name__)
-
+from skimmer.gtk import Adw, GdkPixbuf, Gio, GLib, Gtk, Pango
 from skimmer.playlist import (
+    COVERS_DIR,
     Playlist,
     PlaylistTrack,
-    load_playlists,
-    save_playlists,
     export_m3u8,
+    load_playlists,
     parse_m3u8,
     resolve_cover,
-    COVERS_DIR,
+    save_playlists,
 )
 from skimmer.spotify_import import SpotifyImporter, SpotifyImportError
+
+log = logging.getLogger(__name__)
 
 
 def _beets_search(query: str, config: dict) -> list[PlaylistTrack]:
@@ -259,8 +251,7 @@ class SpotifyImportDialog(Gtk.Window):
         )
         if result["failed"]:
             self.status_lbl.set_label(
-                self.status_lbl.get_label()
-                + f", {len(result['failed'])} failed"
+                self.status_lbl.get_label() + f", {len(result['failed'])} failed"
             )
         self._on_complete(result)
 
@@ -516,7 +507,9 @@ class PlaylistsPage(Gtk.Box):
             if q and q not in pl.name.lower():
                 continue
             cover = resolve_cover(pl)
-            widget = PlaylistCover(pl, cover, on_delete=self._on_grid_delete, on_rename=self._on_grid_rename)
+            widget = PlaylistCover(
+                pl, cover, on_delete=self._on_grid_delete, on_rename=self._on_grid_rename
+            )
             self._cover_widgets.append(widget)
             self.flowbox.append(widget)
 
@@ -629,9 +622,7 @@ class PlaylistsPage(Gtk.Box):
         )
 
     def _on_new(self, *args):
-        dialog = Gtk.Window(
-            title="New Playlist", transient_for=self.get_root(), modal=True
-        )
+        dialog = Gtk.Window(title="New Playlist", transient_for=self.get_root(), modal=True)
         dialog.set_default_size(300, 100)
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         vbox.set_margin_start(12)
@@ -919,13 +910,15 @@ class PlaylistsPage(Gtk.Box):
                                 playlists.append(pl)
                             pl.last_modified = time.time()
                             for trk in result["tracks"]:
-                                pl.tracks.append(PlaylistTrack(
-                                    file_path=trk["file_path"],
-                                    title=trk["title"],
-                                    artist=trk["artist"],
-                                    album=trk.get("album", ""),
-                                    duration=trk.get("duration", 0),
-                                ))
+                                pl.tracks.append(
+                                    PlaylistTrack(
+                                        file_path=trk["file_path"],
+                                        title=trk["title"],
+                                        artist=trk["artist"],
+                                        album=trk.get("album", ""),
+                                        duration=trk.get("duration", 0),
+                                    )
+                                )
                             cover_url = result.get("cover_url", "")
                             if cover_url:
                                 COVERS_DIR.mkdir(parents=True, exist_ok=True)

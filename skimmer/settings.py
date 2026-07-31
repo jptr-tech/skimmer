@@ -1,12 +1,7 @@
 import os
 
-import gi
-gi.require_version("Adw", "1")
-gi.require_version("Gtk", "4.0")
-from gi.repository import Adw, Gtk, GLib
-
 from skimmer.config import resolve_path
-
+from skimmer.gtk import Adw, GLib, Gtk
 
 _BEETS_KEYS = ("music_dir", "beets_lib")
 
@@ -123,9 +118,12 @@ class SettingsPage(Gtk.Box):
         self.scan_interval_btn = Gtk.SpinButton(
             adjustment=Gtk.Adjustment(
                 value=self.config.get("scan_interval", 600) / 60,
-                lower=1, upper=1440, step_increment=1,
+                lower=1,
+                upper=1440,
+                step_increment=1,
             ),
-            climb_rate=1, digits=0,
+            climb_rate=1,
+            digits=0,
         )
         self.scan_interval_btn.set_hexpand(True)
         scan_grid.attach(self.scan_interval_btn, 1, srow, 1, 1)
@@ -196,6 +194,7 @@ class SettingsPage(Gtk.Box):
             self.scan_progress.set_fraction(frac)
             self.scan_progress.set_visible(frac < 1.0)
             self.scan_status_lbl.set_text(f"Scanning... {current}/{total}")
+
         GLib.idle_add(update)
 
     def _on_scanner_complete(self, changed):
@@ -206,6 +205,7 @@ class SettingsPage(Gtk.Box):
                 self.scan_status_lbl.set_text(f"Status: Idle ({changed} changes)")
             else:
                 self.scan_status_lbl.set_text("Status: Idle")
+
         GLib.idle_add(update)
 
     def _on_scan_now(self, btn):
@@ -234,7 +234,8 @@ class SettingsPage(Gtk.Box):
         dialog.destroy()
 
     def _on_reset(self, btn, entry, key):
-        from skimmer.config import _beets_config_value, _BEETS_FALLBACKS
+        from skimmer.config import _BEETS_FALLBACKS, _beets_config_value
+
         val = _beets_config_value(key)
         if not val:
             val = os.path.expanduser(_BEETS_FALLBACKS[key])
@@ -252,4 +253,4 @@ class SettingsPage(Gtk.Box):
         root = self.get_root()
         if root and hasattr(root, "add_toast"):
             toast = Adw.Toast.new("Settings saved")
-            root.add_toast(toast)
+            root.add_toast(toast)  # pyright: ignore[reportAttributeAccessIssue]

@@ -1,8 +1,7 @@
 import json
 import os
-import time
 import uuid
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import platformdirs
@@ -111,7 +110,11 @@ def export_m3u8(playlist: Playlist, device_root: str, out_path: str):
         for track in playlist.tracks:
             rel = os.path.relpath(track.file_path, device_root)
             duration_str = str(int(track.duration)) if track.duration else "-1"
-            title_str = f"{track.artist} - {track.title}" if track.artist and track.title else (track.title or track.artist or "Unknown")
+            title_str = (
+                f"{track.artist} - {track.title}"
+                if track.artist and track.title
+                else (track.title or track.artist or "Unknown")
+            )
             f.write(f"#EXTINF:{duration_str},{title_str}\n")
             f.write(f"{rel}\n")
 
@@ -135,7 +138,7 @@ def parse_m3u8(file_path: str) -> Playlist | None:
                     title = ""
                     artist = ""
                     if extinf.startswith("#EXTINF:"):
-                        rest = extinf[len("#EXTINF:"):]
+                        rest = extinf[len("#EXTINF:") :]
                         parts = rest.split(",", 1)
                         try:
                             duration = int(parts[0])
@@ -147,12 +150,14 @@ def parse_m3u8(file_path: str) -> Playlist | None:
                                 artist, title = title_str.split(" - ", 1)
                             else:
                                 title = title_str
-                    tracks.append(PlaylistTrack(
-                        file_path=line,
-                        title=title,
-                        artist=artist,
-                        duration=duration,
-                    ))
+                    tracks.append(
+                        PlaylistTrack(
+                            file_path=line,
+                            title=title,
+                            artist=artist,
+                            duration=duration,
+                        )
+                    )
                     extinf = None
     except (OSError, UnicodeDecodeError):
         return None

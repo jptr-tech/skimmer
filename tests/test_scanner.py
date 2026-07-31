@@ -1,11 +1,7 @@
 import os
 import threading
-from pathlib import Path
-
-import pytest
 
 from skimmer.scanner import BackgroundScanner
-
 
 SAMPLE_CONFIG = {
     "music_dir": "",
@@ -189,6 +185,7 @@ def test_cache_file_written(tmp_path):
 
     assert cache_file.exists()
     import json
+
     data = json.loads(cache_file.read_text())
     assert data["music_dir"] == str(music_dir)
     assert "x.flac" in data["files"]
@@ -214,6 +211,7 @@ def test_device_scan_updates_device_cache(tmp_path):
     device_cache = mount / ".skimmer-cache.json"
     assert device_cache.exists()
     import json
+
     data = json.loads(device_cache.read_text())
     assert "device.flac" in data["files"]
 
@@ -239,6 +237,7 @@ def test_device_scan_detects_deletion(tmp_path):
 
     device_cache = mount / ".skimmer-cache.json"
     import json
+
     data = json.loads(device_cache.read_text())
     assert "gone.flac" not in data["files"]
     assert changed[0] == 1  # device scan detects the deletion

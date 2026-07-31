@@ -1,12 +1,6 @@
-import gi
-gi.require_version("Gtk", "4.0")
-gi.require_version("Gdk", "4.0")
 from gi.repository import GLib
 
-import pytest
-
-from skimmer.worker import Task, ProcessingManager
-
+from skimmer.worker import ProcessingManager, Task
 
 SAMPLE_CONFIG = {
     "temp_dir": "/tmp/skimmer",
@@ -44,6 +38,7 @@ class TestTask:
     def test_updated_signal(self):
         task = Task("download", "t", {})
         results = []
+
         def handler(t, status, progress, message):
             results.append((status, progress, message))
 

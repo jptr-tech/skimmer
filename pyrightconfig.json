@@ -1,4 +1,14 @@
 {
+  "venvPath": ".",
+  "venv": ".venv",
+  "exclude": [
+    "**/__pycache__",
+    ".venv",
+    "build",
+    "dist",
+    "skimmer.egg-info",
+    "assets"
+  ],
   "reportMissingModuleSource": false,
   "reportMissingImports": false,
   "reportUnknownMemberType": false,

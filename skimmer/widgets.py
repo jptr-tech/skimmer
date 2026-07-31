@@ -1,26 +1,17 @@
 import json
+import logging
 import os
 import threading
 import time
 import urllib.parse
 import urllib.request
 
-import gi
-gi.require_version("Adw", "1")
-gi.require_version("Gtk", "4.0")
-gi.require_version("Gdk", "4.0")
-gi.require_version("Pango", "1.0")
-gi.require_version("GdkPixbuf", "2.0")
-from gi.repository import Adw, Gtk, Gdk, GLib, Pango, GdkPixbuf
-
-from skimmer.playlist import Playlist, PlaylistTrack, load_playlists, save_playlists
-
 from beets import context as beets_context
 from beets.util import bytestring_path
 
-from gi.repository import Gio
+from skimmer.gtk import Adw, Gdk, GdkPixbuf, Gio, GLib, Gtk, Pango
+from skimmer.playlist import Playlist, PlaylistTrack, load_playlists, save_playlists
 
-import logging
 log = logging.getLogger(__name__)
 
 COVER_SIZE = 150
@@ -37,9 +28,7 @@ def find_cover(album_path):
 
 
 def _make_placeholder_pixbuf(size=COVER_SIZE):
-    pixbuf = GdkPixbuf.Pixbuf.new(
-        GdkPixbuf.Colorspace.RGB, False, 8, size, size
-    )
+    pixbuf = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, False, 8, size, size)
     pixbuf.fill(0x44444400)
     return pixbuf
 
@@ -47,7 +36,19 @@ def _make_placeholder_pixbuf(size=COVER_SIZE):
 class AlbumCover(Gtk.FlowBoxChild):
     ITEM_EXTRA = 12
 
-    def __init__(self, artist, album, year, cover_path=None, cover_url=None, data=None, size=COVER_SIZE, on_delete=None, is_pinned=False, is_your_music=False):
+    def __init__(
+        self,
+        artist,
+        album,
+        year,
+        cover_path=None,
+        cover_url=None,
+        data=None,
+        size=COVER_SIZE,
+        on_delete=None,
+        is_pinned=False,
+        is_your_music=False,
+    ):
         super().__init__()
         self.artist = artist
         self.album = album
@@ -130,16 +131,30 @@ class AlbumCover(Gtk.FlowBoxChild):
         if self.is_your_music:
             s = self._cover_size
             pixbuf = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, True, 8, s, s)
-            pixbuf.fill(0x333333ff)
+            pixbuf.fill(0x333333FF)
             try:
                 icon_theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
                 icon_pixbuf = icon_theme.lookup_icon(
-                    "audio-x-generic-symbolic", None, s // 2, 1,
-                    Gtk.TextDirection.NONE, Gtk.IconLookupFlags.FORCE_SYMBOLIC,
-                ).load_icon()
-                icon_pixbuf.composite(pixbuf, s // 4, s // 4, s // 2, s // 2,
-                                      s // 4, s // 4, 1.0, 1.0,
-                                      GdkPixbuf.InterpType.BILINEAR, 255)
+                    "audio-x-generic-symbolic",
+                    None,
+                    s // 2,
+                    1,
+                    Gtk.TextDirection.NONE,
+                    Gtk.IconLookupFlags.FORCE_SYMBOLIC,
+                ).load_icon()  # pyright: ignore[reportAttributeAccessIssue]
+                icon_pixbuf.composite(
+                    pixbuf,
+                    s // 4,
+                    s // 4,
+                    s // 2,
+                    s // 2,
+                    s // 4,
+                    s // 4,
+                    1.0,
+                    1.0,
+                    GdkPixbuf.InterpType.BILINEAR,
+                    255,
+                )
             except Exception:
                 pass
             self.image.set_from_pixbuf(pixbuf)
@@ -153,7 +168,9 @@ class AlbumCover(Gtk.FlowBoxChild):
                     self.image.set_from_pixbuf(pixbuf)
                     return
                 except Exception as e:
-                    log.warning(f"[skimmer] cover: GdkPixbuf failed to load {self.cover_path!r}: {e}")
+                    log.warning(
+                        f"[skimmer] cover: GdkPixbuf failed to load {self.cover_path!r}: {e}"
+                    )
             else:
                 log.info(f"[skimmer] cover: path {self.cover_path!r} does not exist")
         else:
@@ -184,8 +201,7 @@ class AlbumCover(Gtk.FlowBoxChild):
                 GLib.idle_add(self._set_placeholder)
                 return
         scaled = pixbuf.scale_simple(
-            self._cover_size, self._cover_size,
-            GdkPixbuf.InterpType.BILINEAR
+            self._cover_size, self._cover_size, GdkPixbuf.InterpType.BILINEAR
         )
         GLib.idle_add(self.image.set_from_pixbuf, scaled)
 
@@ -195,7 +211,6 @@ class AlbumCover(Gtk.FlowBoxChild):
             self.image.set_from_pixbuf(pixbuf)
         except Exception:
             pass
-
 
 
 class CoverSearchResult(Gtk.Box):
@@ -239,6 +254,9 @@ class CoverSearchResult(Gtk.Box):
     def _load_thumb_thread(self, url):
         try:
             data = urllib.request.urlopen(url, timeout=10).read()
+        except Exception:
+            return
+        try:
             loader = GdkPixbuf.PixbufLoader.new_with_type("jpeg")
             loader.write(data)
             loader.close()
@@ -327,9 +345,19 @@ class CoverSearchDialog(Gtk.Window):
             for r in data.get("results", []):
                 key = (r.get("artistName", ""), r.get("collectionName", ""))
                 thumb = r.get("artworkUrl60", "")
-                full = r.get("artworkUrl100", "").replace("100x100bb", "600x600bb").replace("100x100", "600x600")
+                full = (
+                    r.get("artworkUrl100", "")
+                    .replace("100x100bb", "600x600bb")
+                    .replace("100x100", "600x600")
+                )
                 if full and key not in combined:
-                    combined[key] = (r.get("collectionName", "?"), r.get("artistName", "?"), thumb, full, "iTunes")
+                    combined[key] = (
+                        r.get("collectionName", "?"),
+                        r.get("artistName", "?"),
+                        thumb,
+                        full,
+                        "iTunes",
+                    )
         except Exception as e:
             log.warning(f"[skimmer] iTunes search error: {e}")
 
@@ -343,7 +371,13 @@ class CoverSearchDialog(Gtk.Window):
                 thumb = r.get("cover_small", "")
                 full = r.get("cover_big", "")
                 if full and key not in combined:
-                    combined[key] = (r.get("title", "?"), r.get("artist", {}).get("name", "?"), thumb, full, "Deezer")
+                    combined[key] = (
+                        r.get("title", "?"),
+                        r.get("artist", {}).get("name", "?"),
+                        thumb,
+                        full,
+                        "Deezer",
+                    )
         except Exception as e:
             log.warning(f"[skimmer] Deezer search error: {e}")
 
@@ -367,7 +401,10 @@ class CoverSearchDialog(Gtk.Window):
         for title, artist, thumb_url, full_url, source in results:
             label = f"[{source}] {title}"
             result_widget = CoverSearchResult(
-                label, artist, thumb_url, full_url,
+                label,
+                artist,
+                thumb_url,
+                full_url,
                 on_select=self._on_result_selected,
             )
             self.flowbox.append(result_widget)
@@ -400,7 +437,7 @@ class CoverSearchDialog(Gtk.Window):
                 loader.close()
                 loader.get_pixbuf()
             except Exception:
-                log.info(f"[skimmer] Invalid image data")
+                log.info("[skimmer] Invalid image data")
                 GLib.idle_add(self.status_lbl.set_text, "Invalid image data")
                 return
 
@@ -408,9 +445,7 @@ class CoverSearchDialog(Gtk.Window):
         try:
             with open(dst, "wb") as f:
                 f.write(data)
-            pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
-                dst, 200, 200, True
-            )
+            pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(dst, 200, 200, True)
             GLib.idle_add(self.cover_pic.set_from_pixbuf, pixbuf)
             if self._on_set_cover:
                 GLib.idle_add(self._on_set_cover, dst)
@@ -420,13 +455,26 @@ class CoverSearchDialog(Gtk.Window):
 
 
 class AlbumDetail(Gtk.Box):
-    def __init__(self, config, artist, album, year, tracks,
-                 cover_path=None, cover_url=None,
-                 on_back=None, on_download=None,
-                 album_path=None, on_set_cover=None,
-                 player_bar=None, beets_lib=None,
-                 album_obj=None, on_reimport=None, on_delete=None,
-                 all_tracks_mode=False):
+    def __init__(
+        self,
+        config,
+        artist,
+        album,
+        year,
+        tracks: list[dict],
+        cover_path=None,
+        cover_url=None,
+        on_back=None,
+        on_download=None,
+        album_path=None,
+        on_set_cover=None,
+        player_bar=None,
+        beets_lib=None,
+        album_obj=None,
+        on_reimport=None,
+        on_delete=None,
+        all_tracks_mode=False,
+    ):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self.config = config
         self.album_path = album_path
@@ -511,10 +559,17 @@ class AlbumDetail(Gtk.Box):
             btn_grid.attach(set_cover_btn, 0, 0, 1, 1)
 
             search_btn = Gtk.Button(label="Search Online...")
-            search_btn.connect("clicked", lambda b: CoverSearchDialog(
-                self.get_root(), self._artist, self._album,
-                self.album_path, self.cover_img, self._on_set_cover,
-            ))
+            search_btn.connect(
+                "clicked",
+                lambda b: CoverSearchDialog(
+                    self.get_root(),
+                    self._artist,
+                    self._album,
+                    self.album_path,
+                    self.cover_img,
+                    self._on_set_cover,
+                ),
+            )
             btn_grid.attach(search_btn, 1, 0, 1, 1)
 
             if self._beets_lib and self._album_obj:
@@ -602,12 +657,14 @@ class AlbumDetail(Gtk.Box):
             )
         self._tracks = []
         for item in all_items:
-            self._tracks.append({
-                "track": str(getattr(item, "track", "") or ""),
-                "title": getattr(item, "title", "?") or "?",
-                "artist": getattr(item, "artist", "") or self._artist,
-                "file_path": os.fsdecode(item.path) if getattr(item, "path", None) else None,
-            })
+            self._tracks.append(
+                {
+                    "track": str(getattr(item, "track", "") or ""),
+                    "title": getattr(item, "title", "?") or "?",
+                    "artist": getattr(item, "artist", "") or self._artist,
+                    "file_path": os.fsdecode(item.path) if getattr(item, "path", None) else None,
+                }
+            )
         self._artist = "Your Music"
         self._album = "Your Music"
 
@@ -648,10 +705,14 @@ class AlbumDetail(Gtk.Box):
                         pl.tracks[:] = [t for t in pl.tracks if t.file_path != file_path]
                     else:
                         log.info(f"[skimmer] toggle: adding track to '{pl.name}'")
-                        pl.tracks.append(PlaylistTrack(
-                            file_path=file_path, title=track_title,
-                            artist=track_artist, album=self._album,
-                        ))
+                        pl.tracks.append(
+                            PlaylistTrack(
+                                file_path=file_path,
+                                title=track_title,
+                                artist=track_artist,
+                                album=self._album,
+                            )
+                        )
                     pl.last_modified = time.time()
                     save_playlists(playlists)
                     popover.popdown()
@@ -690,10 +751,14 @@ class AlbumDetail(Gtk.Box):
                         return
                     pl = Playlist(name=name)
                     if file_path:
-                        pl.tracks.append(PlaylistTrack(
-                            file_path=file_path, title=track_title,
-                            artist=track_artist, album=self._album,
-                        ))
+                        pl.tracks.append(
+                            PlaylistTrack(
+                                file_path=file_path,
+                                title=track_title,
+                                artist=track_artist,
+                                album=self._album,
+                            )
+                        )
                     pl.last_modified = time.time()
                     playlists.append(pl)
                     save_playlists(playlists)
@@ -758,11 +823,7 @@ class AlbumDetail(Gtk.Box):
     def _on_reimport(self, btn):
         if not self._beets_lib or not self._album_obj:
             return
-        file_paths = [
-            os.fsdecode(item.path)
-            for item in self._album_obj.items()
-            if item.path
-        ]
+        file_paths = [os.fsdecode(item.path) for item in self._album_obj.items() if item.path]
         parent = self.get_root() if self.get_root() else None
         dialog = AlbumImportDialog(
             parent=parent,
@@ -785,12 +846,14 @@ class AlbumDetail(Gtk.Box):
             self._album_obj = album
             self._tracks = []
             for item in album.items():
-                self._tracks.append({
-                    "track": str(item.track or ""),
-                    "title": item.title or "?",
-                    "artist": item.artist or self._artist,
-                    "file_path": os.fsdecode(item.path) if item.path else None,
-                })
+                self._tracks.append(
+                    {
+                        "track": str(item.track or ""),
+                        "title": item.title or "?",
+                        "artist": item.artist or self._artist,
+                        "file_path": os.fsdecode(item.path) if item.path else None,
+                    }
+                )
             self._artist = album.albumartist or self._artist
             self._album = album.album or self._album
             year = album.year or 0
@@ -867,10 +930,9 @@ class AlbumDetail(Gtk.Box):
                 dst = os.path.join(self.album_path, "cover.jpg")
                 try:
                     import shutil
+
                     shutil.copy2(src, dst)
-                    pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
-                        dst, 200, 200, True
-                    )
+                    pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(dst, 200, 200, True)
                     self.cover_img.set_from_pixbuf(pixbuf)
                     self._cover_path = dst
                     if self._on_set_cover:
@@ -884,27 +946,29 @@ class AlbumDetail(Gtk.Box):
         if cover_path:
             if os.path.exists(cover_path):
                 try:
-                    pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
-                        cover_path, 200, 200, True
-                    )
+                    pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(cover_path, 200, 200, True)
                     self.cover_img.set_from_pixbuf(pixbuf)
                     return
                 except Exception as e:
-                    log.warning(f"[skimmer] detail_cover: GdkPixbuf failed to load {cover_path!r}: {e}")
+                    log.warning(
+                        f"[skimmer] detail_cover: GdkPixbuf failed to load {cover_path!r}: {e}"
+                    )
             else:
                 log.info(f"[skimmer] detail_cover: path {cover_path!r} does not exist")
         else:
             log.info(f"[skimmer] detail_cover: no cover_path for {self._artist} - {self._album}")
         if cover_url:
-            threading.Thread(
-                target=self._load_url, args=(cover_url,), daemon=True
-            ).start()
+            threading.Thread(target=self._load_url, args=(cover_url,), daemon=True).start()
             return
         self._set_img_placeholder()
 
     def _load_url(self, url):
         try:
             data = urllib.request.urlopen(url, timeout=10).read()
+        except Exception:
+            GLib.idle_add(self._set_img_placeholder)
+            return
+        try:
             loader = GdkPixbuf.PixbufLoader.new_with_type("jpeg")
             loader.write(data)
             loader.close()
@@ -948,7 +1012,9 @@ class AlbumImportDialog(Gtk.Window):
         vbox.set_margin_bottom(12)
         self.set_child(vbox)
 
-        header_lbl = Gtk.Label(label="Match album metadata from MusicBrainz", css_classes=["title-2"])
+        header_lbl = Gtk.Label(
+            label="Match album metadata from MusicBrainz", css_classes=["title-2"]
+        )
         header_lbl.set_halign(Gtk.Align.START)
         vbox.append(header_lbl)
 
@@ -1034,16 +1100,20 @@ class AlbumImportDialog(Gtk.Window):
     def _search_thread(self):
         try:
             import beets.plugins
+
             beets.plugins.load_plugins()
             from beets import library as beets_lib_mod
             from beets.autotag.match import tag_album
-            beets_context.set_music_dir(bytestring_path(
-                os.path.expanduser(self._config.get("music_dir", "~/Music"))
-            ))
+
+            beets_context.set_music_dir(
+                bytestring_path(os.path.expanduser(self._config.get("music_dir", "~/Music")))
+            )
             items = [beets_lib_mod.Item.from_path(p) for p in self._file_paths]
             album_artist = getattr(self._album, "albumartist", None) or ""
             album_name = getattr(self._album, "album", None) or ""
-            log.info(f"[skimmer] reimport: searching MusicBrainz for {album_artist!r} - {album_name!r}")
+            log.info(
+                f"[skimmer] reimport: searching MusicBrainz for {album_artist!r} - {album_name!r}"
+            )
             _, _, proposal = tag_album(items, search_artist=album_artist, search_name=album_name)
             count = len(proposal.candidates) if proposal else 0
             log.info(f"[skimmer] reimport: found {count} candidates")
@@ -1063,7 +1133,9 @@ class AlbumImportDialog(Gtk.Window):
         self._spinner.set_visible(False)
         self._match_btn.set_sensitive(True)
         if not candidates:
-            self._status_lbl.set_text("No MusicBrainz matches found. Try selecting different files.")
+            self._status_lbl.set_text(
+                "No MusicBrainz matches found. Try selecting different files."
+            )
             return
         self._candidates = list(candidates)
         self._candidates_lbl.set_visible(True)
@@ -1095,12 +1167,14 @@ class AlbumImportDialog(Gtk.Window):
             lbl.set_hexpand(True)
             hbox.append(lbl)
             row.set_child(hbox)
-            row._radio = radio
+            setattr(row, "_radio", radio)
             self._candidates_list.append(row)
         self._candidates_list.select_row(self._candidates_list.get_row_at_index(0))
         self._selected_match = candidates[0]
         self._import_btn.set_sensitive(True)
-        self._status_lbl.set_text(f"Found {len(candidates)} candidate{'' if len(candidates) == 1 else 's'}")
+        self._status_lbl.set_text(
+            f"Found {len(candidates)} candidate{'' if len(candidates) == 1 else 's'}"
+        )
 
     def _on_selection_changed(self, listbox):
         rows = listbox.get_selected_rows()

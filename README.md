@@ -25,6 +25,9 @@ device can easily get and sync music.
 - Sync music library to Innioasis Y1
 - MPRIS media controls (playerctl, D-Bus)
 - YouTube Music integration (search, download)
+- Spotify playlist import (past a playlist URL to fetch the full tracklist,
+  skip tracks already in your library, and download the rest via yt-dlp,
+  tagging and organizing them with beets)
 - Album art display
 - Queue-based playback
 
@@ -71,6 +74,27 @@ uv run skimmer
 2. `uv sync`
 3. `bash build-aux/flatpak/update-deps.sh` (regenerates Flatpak dep bundle,
    neccesary because of python deps needing to be prefetched)
+
+## Development
+
+Lint, format, type-check, and test:
+
+```bash
+uv run ruff check        # lint
+uv run ruff format       # format
+uv run pyright           # type checking (0 errors expected)
+uv run pytest -q         # tests
+```
+
+Optional pre-commit hooks (ruff + pyright):
+
+```bash
+uv tool install pre-commit
+pre-commit install
+```
+
+CI (GitHub Actions) runs the full lint/typecheck/test suite on every push and
+pull request.
 
 ## Installation
 

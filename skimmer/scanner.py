@@ -1,9 +1,9 @@
+import logging
 import os
 import threading
 
 from skimmer import synccache
 
-import logging
 log = logging.getLogger(__name__)
 
 
@@ -42,15 +42,15 @@ class BackgroundScanner:
         )
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
-        log.info(f"[skimmer] Scanner: thread started")
+        log.info("[skimmer] Scanner: thread started")
 
     def stop(self):
-        log.info(f"[skimmer] Scanner: stopping")
+        log.info("[skimmer] Scanner: stopping")
         self._stop_event.set()
         self._wake_event.set()
 
     def scan_now(self):
-        log.info(f"[skimmer] Scanner: manual scan triggered")
+        log.info("[skimmer] Scanner: manual scan triggered")
         self._wake_event.set()
 
     def get_local_cache(self):
@@ -63,7 +63,7 @@ class BackgroundScanner:
             self._local_cache = cached
 
     def _run(self):
-        log.info(f"[skimmer] Scanner: initial scan starting")
+        log.info("[skimmer] Scanner: initial scan starting")
         self._scan()
         while not self._stop_event.is_set():
             interval = max(10, self.config.get("scan_interval", 1800))
@@ -72,7 +72,7 @@ class BackgroundScanner:
             self._wake_event.clear()
             if self._stop_event.is_set():
                 break
-            log.info(f"[skimmer] Scanner: periodic scan starting")
+            log.info("[skimmer] Scanner: periodic scan starting")
             self._scan()
 
     def _scan(self):
@@ -84,9 +84,7 @@ class BackgroundScanner:
             self._on_complete(total_changed)
 
         if self._on_status:
-            self._on_status(
-                "Idle" if total_changed == 0 else f"Idle ({total_changed} changes)"
-            )
+            self._on_status("Idle" if total_changed == 0 else f"Idle ({total_changed} changes)")
 
     def _scan_local(self):
         music_dir = self.config["music_dir"]
@@ -154,14 +152,12 @@ class BackgroundScanner:
     def _scan_device(self):
         mount_path = self.config.get("mount_path", "")
         if not mount_path or not os.path.isdir(mount_path):
-            log.info(f"[skimmer] Scanner: device not mounted, skipping")
+            log.info("[skimmer] Scanner: device not mounted, skipping")
             return 0
 
         device_music = os.path.join(mount_path, "Music")
         if not os.path.isdir(device_music):
-            log.info(
-                f"[skimmer] Scanner: device Music dir not found: {device_music}, skipping"
-            )
+            log.info(f"[skimmer] Scanner: device Music dir not found: {device_music}, skipping")
             return 0
 
         device_cache = os.path.join(mount_path, ".skimmer-cache.json")

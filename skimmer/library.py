@@ -1,21 +1,15 @@
 import contextlib
+import logging
 import os
 import threading
-
-import gi
-
-gi.require_version("Adw", "1")
-gi.require_version("Gtk", "4.0")
-gi.require_version("Gdk", "4.0")
-from gi.repository import Adw, Gtk, GLib, Gdk
 
 from beets import context as beets_context
 from beets.library import Library
 from beets.util import bytestring_path
 
-from skimmer.widgets import AlbumCover, AlbumDetail, find_cover, COVER_SIZE
+from skimmer.gtk import Adw, Gdk, GLib, Gtk
+from skimmer.widgets import COVER_SIZE, AlbumCover, AlbumDetail, find_cover
 
-import logging
 log = logging.getLogger(__name__)
 
 
@@ -88,23 +82,20 @@ class LibraryPage(Gtk.Box):
     def _fetch_missing_covers(self):
         if not self._beets_lib:
             return
-        log.info(f"[skimmer] Fetching missing album art...")
+        log.info("[skimmer] Fetching missing album art...")
         GLib.idle_add(self.status_label.set_text, "Fetching missing album art...")
         try:
-            music_dir = os.path.expanduser(
-                self.config.get("music_dir", "~/Music")
-            )
+            music_dir = os.path.expanduser(self.config.get("music_dir", "~/Music"))
             beets_context.set_music_dir(bytestring_path(music_dir))
             from beetsplug.fetchart import FetchArtPlugin
+
             fa = FetchArtPlugin()
             albums = list(self._beets_lib.albums())
             with open(os.devnull, "w") as devnull:
                 with contextlib.redirect_stdout(devnull), contextlib.redirect_stderr(devnull):
                     fa.batch_fetch_art(self._beets_lib, albums, force=False, quiet=True)
             log.info(f"[skimmer] fetchart done: checked {len(albums)} albums")
-            GLib.idle_add(
-                self.status_label.set_text, f"fetchart: checked {len(albums)} albums"
-            )
+            GLib.idle_add(self.status_label.set_text, f"fetchart: checked {len(albums)} albums")
         except Exception as e:
             log.warning(f"[skimmer] fetchart error: {e}")
             GLib.idle_add(self.status_label.set_text, f"fetchart: {e}")
@@ -134,7 +125,7 @@ class LibraryPage(Gtk.Box):
             return
         try:
             for album in self._beets_lib.albums():
-                if getattr(album, 'genre', None) == "Spotify Import":
+                if getattr(album, "genre", None) == "Spotify Import":
                     continue
                 try:
                     artist = album.albumartist or "Unknown"
@@ -153,9 +144,13 @@ class LibraryPage(Gtk.Box):
                     if album_path:
                         cover_path = find_cover(album_path)
                         if not cover_path:
-                            log.info(f"[skimmer] cover: find_cover({album_path!r}) returned None for '{artist}' - '{title}'")
+                            log.info(
+                                f"[skimmer] cover: find_cover({album_path!r}) returned None for '{artist}' - '{title}'"
+                            )
                 except Exception as e:
-                    log.info(f"[skimmer] cover: error resolving cover for '{artist}' - '{title}': {e}")
+                    log.info(
+                        f"[skimmer] cover: error resolving cover for '{artist}' - '{title}': {e}"
+                    )
                 self._all_albums.append((artist, title, year, cover_path, album))
             self._build_covers()
             self._filter_and_reflow(self.search_entry.get_text())
@@ -167,7 +162,9 @@ class LibraryPage(Gtk.Box):
         self._cover_widgets = []
 
         your_music = AlbumCover(
-            "Your Music", "Your Music", 0,
+            "Your Music",
+            "Your Music",
+            0,
             is_your_music=True,
             data=None,
             size=self._cover_size,

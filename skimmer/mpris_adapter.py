@@ -1,19 +1,14 @@
-from decimal import Decimal
 import os
-
-import gi
-
-gi.require_version("Gst", "1.0")
-from gi.repository import Gst
+from decimal import Decimal
 
 from mpris_server import Metadata
-from mpris_server.adapters import (
-    MprisAdapter,
-    PlayState,
-)
+from mpris_server.adapters import MprisAdapter
+from mpris_server.base import PlayState
 from mpris_server.events import EventAdapter
 from mpris_server.mpris.metadata import MetadataEntries
 from mpris_server.server import Server
+
+from skimmer.gst import Gst
 
 from .media_integration import MediaIntegration
 
@@ -148,12 +143,12 @@ class SkimmerAdapter(MprisAdapter):
     def previous(self):
         self._player._on_prev(None)
 
-    def seek(self, position):
+    def seek(self, time, track_id=None):
         if self._player._duration > 0:
             self._player._pipeline.seek_simple(
                 Gst.Format.TIME,
                 Gst.SeekFlags.FLUSH | Gst.SeekFlags.KEY_UNIT,
-                position * 1000,
+                time * 1000,
             )
 
     def open_uri(self, uri):
@@ -168,7 +163,7 @@ class SkimmerEventAdapter(EventAdapter):
         self.emit_player_changes(["Metadata", "CanGoNext", "CanGoPrevious", "CanPlay"])
 
     def on_seek(self, position):
-        self.player.Seeked(position)
+        self.player.Seeked(position)  # pyright: ignore[reportCallIssue]
         self.emit_player_changes(["Position"])
 
 

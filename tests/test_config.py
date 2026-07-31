@@ -1,32 +1,34 @@
 import json
 import os
-from pathlib import Path
+import tempfile
 from unittest import mock
 
-import pytest
-
 from skimmer.config import (
-    CONFIG_DIR,
-    CONFIG_FILE,
     DEFAULT_CONFIG,
     load_config,
     save_config,
-    DEFAULT_CONFIG,
 )
 
 
 def test_default_config_keys():
     expected_keys = {
-        "music_dir", "beets_lib", "temp_dir", "mount_path",
-        "ytdlp_format", "ytdlp_audio_format", "max_concurrent_downloads",
+        "music_dir",
+        "beets_lib",
+        "temp_dir",
+        "mount_path",
+        "ytdlp_format",
+        "ytdlp_audio_format",
+        "max_concurrent_downloads",
         "scan_interval",
     }
     assert set(DEFAULT_CONFIG) == expected_keys
 
 
 def test_default_config_values():
-    assert DEFAULT_CONFIG["music_dir"] == str(Path.home() / "Music")
-    assert DEFAULT_CONFIG["temp_dir"] == "/tmp/skimmer"
+    assert DEFAULT_CONFIG["music_dir"] == ""
+    assert DEFAULT_CONFIG["beets_lib"] == ""
+    assert DEFAULT_CONFIG["temp_dir"] == os.path.join(tempfile.gettempdir(), "skimmer")
+    assert DEFAULT_CONFIG["mount_path"] == ""
     assert DEFAULT_CONFIG["ytdlp_format"] == "bestaudio/best"
     assert DEFAULT_CONFIG["ytdlp_audio_format"] == "mp3"
     assert DEFAULT_CONFIG["max_concurrent_downloads"] == 2

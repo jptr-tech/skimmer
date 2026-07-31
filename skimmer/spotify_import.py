@@ -1,23 +1,18 @@
+import logging
 import os
 import shutil
 import tempfile
 import urllib.request
-from pathlib import Path
-
-import gi
-gi.require_version("Adw", "1")
-gi.require_version("Gtk", "4.0")
-from gi.repository import GLib
 
 import yt_dlp
 from beets import context as beets_context
 from beets.library import Item, Library
 from beets.util import bytestring_path
+from gi.repository import GLib
 from spotify_scraper import SpotifyClient
 
 from skimmer.config import resolve_path
 
-import logging
 log = logging.getLogger(__name__)
 
 
@@ -70,7 +65,7 @@ class SpotifyImporter:
         total = len(raw_tracks)
 
         log.info(f"[skimmer] Playlist: {playlist_name!r}, {total} tracks")
-        self._status(f"Found playlist \"{playlist_name}\" — {total} tracks")
+        self._status(f'Found playlist "{playlist_name}" — {total} tracks')
 
         lib = None
         if os.path.exists(beets_db):
@@ -156,8 +151,10 @@ class SpotifyImporter:
 
                 artist = entry["artist"]
                 title = entry["title"]
-                self._progress(idx + 1, total, f"Downloading ({idx+1}/{total}): {artist} - {title}")
-                self._status(f"Downloading ({idx+1}/{total}): {artist} - {title}")
+                self._progress(
+                    idx + 1, total, f"Downloading ({idx + 1}/{total}): {artist} - {title}"
+                )
+                self._status(f"Downloading ({idx + 1}/{total}): {artist} - {title}")
 
                 search_query = f"ytsearch:{artist} - {title}"
                 out_template = os.path.join(temp_dir, f"{idx:04d}-%(title)s.%(ext)s")
@@ -169,10 +166,12 @@ class SpotifyImporter:
                     "noplaylist": True,
                     "quiet": True,
                     "no_warnings": True,
-                    "postprocessors": [{
-                        "key": "FFmpegExtractAudio",
-                        "preferredcodec": "mp3",
-                    }],
+                    "postprocessors": [
+                        {
+                            "key": "FFmpegExtractAudio",
+                            "preferredcodec": "mp3",
+                        }
+                    ],
                 }
 
                 try:
@@ -215,7 +214,9 @@ class SpotifyImporter:
                     cover_url = entry.get("cover_url", "")
                     if cover_url and not os.path.exists(os.path.join(dest_dir, "cover.jpg")):
                         try:
-                            urllib.request.urlretrieve(cover_url, os.path.join(dest_dir, "cover.jpg"))
+                            urllib.request.urlretrieve(
+                                cover_url, os.path.join(dest_dir, "cover.jpg")
+                            )
                             log.info(f"[skimmer] Saved cover: {dest_dir}/cover.jpg")
                         except Exception as ce:
                             log.warning(f"[skimmer] Failed to save cover: {ce}")
@@ -228,8 +229,11 @@ class SpotifyImporter:
 
             # Import new files into beets
             if lib:
-                new_tracks = [(t["file_path"], t["artist"], t["album"])
-                              for t in to_download if t["file_path"] and t["file_path"].startswith(music_dir)]
+                new_tracks = [
+                    (t["file_path"], t["artist"], t["album"])
+                    for t in to_download
+                    if t["file_path"] and t["file_path"].startswith(music_dir)
+                ]
                 if new_tracks:
                     self._status("Importing into beets library...")
                     try:
@@ -249,9 +253,11 @@ class SpotifyImporter:
     def _tag_file(self, fpath, entry):
         ext = os.path.splitext(fpath)[1].lower()
         from mutagen import File as MutagenFile
+
         try:
             if ext == ".mp3":
                 from mutagen.easyid3 import EasyID3
+
                 try:
                     audio = EasyID3(fpath)
                 except Exception:
@@ -259,12 +265,15 @@ class SpotifyImporter:
                     audio.add_tags()
             elif ext in (".m4a", ".mp4", ".m4b"):
                 from mutagen.mp4 import MP4
+
                 audio = MP4(fpath)
             elif ext == ".flac":
                 from mutagen.flac import FLAC
+
                 audio = FLAC(fpath)
             elif ext == ".opus":
                 from mutagen.oggopus import OggOpus
+
                 audio = OggOpus(fpath)
             else:
                 return
@@ -300,6 +309,7 @@ class SpotifyImporter:
                     log.info(f"[skimmer] Created album '{album_obj.album}' (id={album_obj.id})")
                     try:
                         from beets.autotag.match import tag_album
+
                         album_items = list(album_obj.items())
                         _, _, proposal = tag_album(
                             album_items, search_artist=artist, search_name=album_title
@@ -307,12 +317,14 @@ class SpotifyImporter:
                         if proposal and proposal.candidates:
                             match = proposal.candidates[0]
                             match.apply_metadata()
-                            for item in match.mapping:
+                            for item in match.mapping:  # pyright: ignore[reportAttributeAccessIssue]
                                 item.try_write()
                             album_obj.albumartist = match.info.artist
                             album_obj.album = match.info.album
                             album_obj.store()
-                            log.info(f"[skimmer] Autotagged: {match.info.artist} - {match.info.album}")
+                            log.info(
+                                f"[skimmer] Autotagged: {match.info.artist} - {match.info.album}"
+                            )
                     except Exception as e:
                         log.warning(f"[skimmer] Autotag skipped: {e}")
                 except Exception as e:

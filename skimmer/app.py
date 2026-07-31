@@ -1,26 +1,20 @@
+import logging
 import os
 import sys
 import threading
 
-import gi
-
-gi.require_version("Gtk", "4.0")
-gi.require_version("Adw", "1")
-gi.require_version("GdkPixbuf", "2.0")
-from gi.repository import Gtk, GLib, Adw, Gdk, GdkPixbuf, Gio
-
 from skimmer.config import load_config, save_config
-from skimmer.worker import ProcessingManager, Task
-from skimmer.scanner import BackgroundScanner
+from skimmer.gtk import Adw, Gdk, Gio, GLib, Gtk
 from skimmer.library import LibraryPage
-from skimmer.search import SearchPage
-from skimmer.processing import ProcessingPage
-from skimmer.settings import SettingsPage
+from skimmer.media_integration import create_integration
 from skimmer.player import PlayerBar
 from skimmer.playlists_ui import PlaylistsPage
-from skimmer.media_integration import create_integration
+from skimmer.processing import ProcessingPage
+from skimmer.scanner import BackgroundScanner
+from skimmer.search import SearchPage
+from skimmer.settings import SettingsPage
+from skimmer.worker import ProcessingManager, Task
 
-import logging
 log = logging.getLogger(__name__)
 
 
@@ -33,12 +27,6 @@ class SkimmerApp(Adw.Application):
         self.proc_mgr = ProcessingManager(self.config)
         self.scanner = BackgroundScanner(self.config)
         self.connect("activate", self._on_activate)
-        icon_path = os.path.join(os.path.dirname(__file__), "data", "tech.jptr.Skimmer.png")
-        try:
-            pixbuf = GdkPixbuf.Pixbuf.new_from_file(icon_path)
-            Gtk.Window.set_default_icon_list([pixbuf])
-        except Exception:
-            pass
         self._last_connected = False
         self._sync_task = None
         self._auto_sync_timer = None
@@ -125,15 +113,15 @@ class SkimmerApp(Adw.Application):
         self.proc_mgr.connect("task-removed", self._on_proc_change)
         self._update_proc_badge()
 
-        page = SettingsPage(self.config, self._on_save_settings, scanner=self.scanner, on_about_cb=self._on_about)
+        page = SettingsPage(
+            self.config, self._on_save_settings, scanner=self.scanner, on_about_cb=self._on_about
+        )
         self.stack.add_titled(page, "settings", "Settings")
         self.pages["settings"] = page
 
         self.stack.connect("notify::visible-child", self._on_playlists_page_changed)
 
-        self.player_bar.set_show_album_cb(
-            lambda: self.stack.set_visible_child_name("library")
-        )
+        self.player_bar.set_show_album_cb(lambda: self.stack.set_visible_child_name("library"))
 
         switcher = Gtk.StackSwitcher()
         switcher.set_stack(self.stack)
@@ -246,7 +234,9 @@ class SkimmerApp(Adw.Application):
         mounts = [m.get_root().get_path() for m in Gio.VolumeMonitor.get().get_mounts()]
         connected = mount_path in mounts
         if not connected and mount_path and os.path.isdir(mount_path):
-            log.info(f"[skimmer] _check_mount: {mount_path!r} exists on disk — treating as connected")
+            log.info(
+                f"[skimmer] _check_mount: {mount_path!r} exists on disk — treating as connected"
+            )
             connected = True
 
         log.info(f"[skimmer] _check_mount: mount_path={mount_path!r}")
@@ -326,6 +316,7 @@ class SkimmerApp(Adw.Application):
                     return
             if sys.platform == "darwin":
                 import subprocess
+
                 vol_name = os.path.basename(mount_path)
                 subprocess.run(["diskutil", "eject", vol_name], capture_output=True)
                 GLib.idle_add(self._on_eject_done, None)
@@ -357,17 +348,11 @@ class SkimmerApp(Adw.Application):
 
     def _on_proc_change(self, *args):
         self._update_proc_badge()
-        if (
-            isinstance(args[0], Task)
-            and args[1] == "completed"
-            and args[0].type == "import"
-        ):
+        if isinstance(args[0], Task) and args[1] == "completed" and args[0].type == "import":
             GLib.idle_add(self.pages["library"]._refresh)
 
     def _update_proc_badge(self):
-        active = sum(
-            1 for t in self.proc_mgr.tasks if t.status in ("pending", "running")
-        )
+        active = sum(1 for t in self.proc_mgr.tasks if t.status in ("pending", "running"))
         title = f"Processing ({active})" if active > 0 else "Processing"
         stack_page = self.stack.get_page(self._proc_page)
         if stack_page:

@@ -80,10 +80,11 @@ uv run skimmer
 Lint, format, type-check, and test:
 
 ```bash
-uv run ruff check        # lint
-uv run ruff format       # format
-uv run pyright           # type checking (0 errors expected)
-uv run pytest -q         # tests
+make test                 # all checks, in order
+uv run ruff check         # lint
+uv run ruff format        # format
+uv run pyright            # type checking (0 errors expected)
+uv run pytest -q          # tests
 ```
 
 Optional pre-commit hooks (ruff + pyright):
@@ -93,8 +94,7 @@ uv tool install pre-commit
 pre-commit install
 ```
 
-CI (GitHub Actions) runs the full lint/typecheck/test suite on every push and
-pull request.
+CI (GitHub Actions) runs `make test` on every push and pull request.
 
 ## Installation
 

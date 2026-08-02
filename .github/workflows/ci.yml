@@ -31,14 +31,5 @@ jobs:
       - name: Sync dependencies
         run: uv sync
 
-      - name: Ruff check
-        run: uv run ruff check
-
-      - name: Ruff format check
-        run: uv run ruff format --check
-
-      - name: Pyright
-        run: uv run pyright
-
-      - name: Tests
-        run: uv run pytest -q
+      - name: Lint, typecheck, and test
+        run: make test

@@ -32,12 +32,19 @@ def create_integration(player_bar):
             logger.warning("Failed to start MPRIS integration: %s\n%s", e, traceback.format_exc())
             return NullIntegration(player_bar)
     elif platform == "darwin":
-        logger.info(
-            "macOS Now Playing integration not implemented yet. "
-            "See https://developer.apple.com/documentation/mediaplayer "
-            "for MPNowPlayingInfoCenter / MPRemoteCommandCenter"
-        )
-        return NullIntegration(player_bar)
+        try:
+            from .mac_now_playing import MacNowPlaying
+
+            return MacNowPlaying(player_bar)
+        except Exception as e:
+            import traceback
+
+            logger.warning(
+                "Failed to start macOS Now Playing integration: %s\n%s",
+                e,
+                traceback.format_exc(),
+            )
+            return NullIntegration(player_bar)
     elif platform == "win32":
         logger.info(
             "Windows SystemMediaTransportControls integration not implemented yet. "

@@ -11,6 +11,8 @@ dependencies = [
   "mpris-server>=0.8.1",
   "platformdirs>=4.0.0",
   "spotifyscraper>=3.9.0",
+  "pyobjc-framework-MediaPlayer>=10.0; platform_system == 'Darwin'",
+  "pyobjc-framework-Cocoa>=10.0; platform_system == 'Darwin'",
 ]
 
 [project.scripts]

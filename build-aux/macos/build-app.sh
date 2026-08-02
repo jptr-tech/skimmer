@@ -74,6 +74,9 @@ PYINST_ARGS+=(
   --collect-submodules gi
   --collect-data ytmusicapi
   --collect-data beets
+  --collect-all pyobjc
+  --collect-all MediaPlayer
+  --collect-all Cocoa
   --hidden-import gi
   --hidden-import gi.repository
   --hidden-import gi.repository.Gtk

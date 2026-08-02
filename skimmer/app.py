@@ -82,7 +82,10 @@ class SkimmerApp(Adw.Application):
         toolbar_view.add_bottom_bar(self.player_bar)
 
         self.media_integration = create_integration(self.player_bar)
-        self.media_integration.start()
+        try:
+            self.media_integration.start()
+        except Exception:
+            log.warning("Failed to start media integration", exc_info=True)
         self.scanner.start()
 
         self.stack = Gtk.Stack()

@@ -26,6 +26,8 @@ class PlayerBar(Gtk.Box):
         self._queue = []
         self._queue_index = -1
         self._track_change_cbs = []
+        self._state_change_cbs = []
+        self._position_cbs = []
         self._show_album_cb = None
         self._current_cover_path = None
 
@@ -138,6 +140,12 @@ class PlayerBar(Gtk.Box):
     def set_track_change_cb(self, cb):
         self._track_change_cbs.append(cb)
 
+    def set_state_change_cb(self, cb):
+        self._state_change_cbs.append(cb)
+
+    def set_position_cb(self, cb):
+        self._position_cbs.append(cb)
+
     def set_show_album_cb(self, cb):
         self._show_album_cb = cb
 
@@ -185,11 +193,20 @@ class PlayerBar(Gtk.Box):
         self._position_timer = GLib.timeout_add(500, self._update_position)
 
         self._notify_track_change()
+        self._notify_state_change()
         self.set_visible(True)
 
     def _notify_track_change(self):
         for cb in self._track_change_cbs:
             cb(self._queue_index)
+
+    def _notify_state_change(self):
+        for cb in self._state_change_cbs:
+            cb(self._playing)
+
+    def _notify_position(self, pos_ns, dur_ns):
+        for cb in self._position_cbs:
+            cb(pos_ns, dur_ns)
 
     def _on_play_pause(self, btn):
         if not self._playing:
@@ -206,6 +223,7 @@ class PlayerBar(Gtk.Box):
             if self._position_timer:
                 GLib.source_remove(self._position_timer)
                 self._position_timer = 0
+        self._notify_state_change()
 
     def _on_next(self, btn):
         self._play_queue_index(self._queue_index + 1)
@@ -226,6 +244,7 @@ class PlayerBar(Gtk.Box):
             self.artist_label.set_text("")
             self.cover_thumb.set_from_icon_name("audio-x-generic-symbolic")
             self.set_visible(False)
+            self._notify_state_change()
             return
         self._queue_index = idx
         path, title, artist = self._queue[self._queue_index]
@@ -283,6 +302,7 @@ class PlayerBar(Gtk.Box):
                 self.progress.set_value(percent)
                 self.time_current.set_text(self._format_ns(pos))
                 self.time_total.set_text(self._format_ns(dur))
+            self._notify_position(pos, self._duration)
 
         return GLib.SOURCE_CONTINUE
 

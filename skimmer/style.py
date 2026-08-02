@@ -6,10 +6,10 @@ _CSS = """
   background-image: none;
 }
 
-.stack-switcher > button {
+stackswitcher > button {
   min-width: 0;
-  padding-left: 8px;
-  padding-right: 8px;
+  padding-left: 20px;
+  padding-right: 20px;
 }
 """
 

@@ -367,6 +367,76 @@ class ProcessingManager(GObject.Object):
             shutil.rmtree(album_dir, ignore_errors=True)
             log.info("[skimmer] Cleaned up temp dir")
 
+    def _spotify_paths(self):
+        """Absolute local paths of tracks whose album is tagged 'Spotify Import'."""
+        from skimmer.config import resolve_path
+
+        beets_db = resolve_path(self.config, "beets_lib")
+        if not beets_db or not os.path.exists(beets_db):
+            return set()
+        try:
+            music_dir = resolve_path(self.config, "music_dir")
+            beets_context.set_music_dir(bytestring_path(music_dir))
+            lib = Library(beets_db, directory=music_dir)
+            paths = set()
+            for album in lib.albums():
+                if getattr(album, "genre", None) != "Spotify Import":
+                    continue
+                for item in album.items():
+                    if getattr(item, "path", None):
+                        paths.add(os.fsdecode(item.path))
+            return paths
+        except Exception as e:
+            log.warning(f"[skimmer] Sync: could not determine Spotify imports: {e}")
+            return set()
+
+    def _rel_paths_under(self, paths, root):
+        root_abs = os.path.abspath(root)
+        rels = set()
+        for p in paths:
+            p_abs = os.path.abspath(p)
+            if p_abs == root_abs or p_abs.startswith(root_abs + os.sep):
+                rels.add(os.path.relpath(p_abs, root_abs))
+        return rels
+
+    @staticmethod
+    def _is_spotify_rel(rel, spotify_rels):
+        if rel in spotify_rels:
+            return True
+        return any(s.startswith(rel + os.sep) for s in spotify_rels)
+
+    def _device_locations(self, dst, rel, spotify_rels):
+        """Device destination(s) for a music-relative path. Spotify imports are
+        relocated under a .Spotify folder that Rockbox's database ignores."""
+        if self._is_spotify_rel(rel, spotify_rels):
+            return [os.path.join(dst, ".Spotify", rel)]
+        return [os.path.join(dst, rel)]
+
+    @staticmethod
+    def _remove_if_exists(path):
+        try:
+            if os.path.isfile(path):
+                os.remove(path)
+            elif os.path.isdir(path):
+                shutil.rmtree(path, ignore_errors=True)
+        except OSError:
+            pass
+
+    def _device_paths(self, pl, spotify_rels):
+        """Map each playlist track to its absolute path on the device mount."""
+        mount_path = self.config.get("mount_path", "")
+        music_dir = os.path.abspath(self.config["music_dir"])
+        paths = []
+        for trk in pl.tracks:
+            fp = trk.file_path
+            if fp and os.path.isabs(fp) and os.path.abspath(fp).startswith(music_dir + os.sep):
+                rel = os.path.relpath(fp, music_dir)
+                sub = ".Spotify" if rel in spotify_rels else ""
+                paths.append(os.path.join(mount_path, "Music", sub, rel))
+            else:
+                paths.append(fp)
+        return paths
+
     def _do_sync(self, task):
         src = self.config["music_dir"]
         dst = os.path.join(self.config["mount_path"], "Music")
@@ -374,11 +444,21 @@ class ProcessingManager(GObject.Object):
             raise FileNotFoundError(f"Source directory not found: {src}")
         os.makedirs(dst, exist_ok=True)
 
+        spotify_rels = self._rel_paths_under(self._spotify_paths(), src)
+        spotify_dir = os.path.join(dst, ".Spotify")
+        if spotify_rels:
+            os.makedirs(spotify_dir, exist_ok=True)
+            ignore_file = os.path.join(spotify_dir, "database.ignore")
+            if not os.path.exists(ignore_file):
+                with open(ignore_file, "w", encoding="utf-8"):
+                    pass
+                log.info(f"[skimmer] Sync: wrote database.ignore in {spotify_dir}")
+
         cache_path = os.path.join(self.config["mount_path"], ".skimmer-cache.json")
 
         log.info(f"[skimmer] Sync: {src} -> {dst}")
 
-        cached = synccache.load_cache(cache_path, src)
+        cached = synccache.load_cache(cache_path, None)
         if cached is not None:
             log.info(f"[skimmer] Sync: loaded cache from {cache_path} ({len(cached)} files)")
         else:
@@ -394,6 +474,13 @@ class ProcessingManager(GObject.Object):
             if modified:
                 for p in sorted(modified)[:5]:
                     log.info(f"[skimmer] Sync:   modified: {p}")
+
+            for rel in sorted(spotify_rels):
+                stale = os.path.join(dst, rel)
+                if os.path.lexists(stale):
+                    log.info(f"[skimmer] Sync: removing stale Spotify copy at {stale}")
+                    self._remove_if_exists(stale)
+
             if not added and not modified and not deleted:
                 log.info("[skimmer] Sync: no changes, skipping copy")
                 GLib.idle_add(task.emit, "updated", task.status, 1.0, "Already up to date")
@@ -401,14 +488,8 @@ class ProcessingManager(GObject.Object):
                 return
 
             for p in sorted(deleted):
-                dst_path = os.path.join(dst, p)
-                try:
-                    if os.path.isfile(dst_path):
-                        os.remove(dst_path)
-                    elif os.path.isdir(dst_path):
-                        shutil.rmtree(dst_path, ignore_errors=True)
-                except OSError:
-                    pass
+                for dst_path in self._device_locations(dst, p, spotify_rels):
+                    self._remove_if_exists(dst_path)
 
             to_transfer = sorted(added) + sorted(modified)
             if not to_transfer:
@@ -423,8 +504,8 @@ class ProcessingManager(GObject.Object):
                 log.info("[skimmer] Sync complete (deletions only)")
                 return
         else:
-            to_transfer = sorted(os.listdir(src))
-            log.info(f"[skimmer] Sync: first sync — {len(to_transfer)} top-level items")
+            to_transfer = sorted(synccache._walk(src))
+            log.info(f"[skimmer] Sync: first sync — {len(to_transfer)} files")
 
         total = len(to_transfer)
         log.info(f"[skimmer] Sync: copying {total} files")
@@ -436,7 +517,7 @@ class ProcessingManager(GObject.Object):
 
         for p in to_transfer:
             src_path = os.path.join(src, p)
-            dst_path = os.path.join(dst, p)
+            dst_path = self._device_locations(dst, p, spotify_rels)[0]
             try:
                 if os.path.isdir(src_path):
                     os.makedirs(dst_path, exist_ok=True)
@@ -464,7 +545,7 @@ class ProcessingManager(GObject.Object):
 
         log.info(f"[skimmer] Sync: copy finished ({completed} files)")
         GLib.idle_add(task.emit, "updated", task.status, 0.85, "Syncing playlists...")
-        self._sync_playlists(task, dst)
+        self._sync_playlists(task, dst, spotify_rels)
         self._sync_podcasts(task)
         GLib.idle_add(task.emit, "updated", task.status, 0.95, "Saving cache...")
         synccache.update_cache(cache_path, src)
@@ -473,13 +554,15 @@ class ProcessingManager(GObject.Object):
         GLib.idle_add(task.emit, "updated", task.status, 1.0, "Sync complete")
         log.info(f"[skimmer] Sync complete ({completed} files)")
 
-    def _sync_playlists(self, task, music_dst):
+    def _sync_playlists(self, task, music_dst, spotify_rels=None):
         mount_path = self.config.get("mount_path", "")
         if not mount_path:
             return
         device_root = os.path.realpath(mount_path)
         playlist_dir = os.path.join(device_root, "Playlists")
         os.makedirs(playlist_dir, exist_ok=True)
+        if spotify_rels is None:
+            spotify_rels = set()
 
         app_playlists = load_playlists()
         app_by_name = {p.name: p for p in app_playlists}
@@ -509,14 +592,14 @@ class ProcessingManager(GObject.Object):
                         changed = True
                 else:
                     log.info(f"[skimmer] Sync: playlist '{name}' newer in app — exporting")
-                    export_m3u8(pl, device_root, dev_path)
+                    export_m3u8(pl, dev_path, paths=self._device_paths(pl, spotify_rels))
                     pl.last_modified = time.time()
                     changed = True
             else:
                 if pl.tracks:
                     out_path = os.path.join(playlist_dir, f"{name}.m3u8")
                     log.info(f"[skimmer] Sync: creating playlist '{name}' on device")
-                    export_m3u8(pl, device_root, out_path)
+                    export_m3u8(pl, out_path, paths=self._device_paths(pl, spotify_rels))
                     pl.last_modified = time.time()
                     changed = True
 

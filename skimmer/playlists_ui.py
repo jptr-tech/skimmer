@@ -865,7 +865,7 @@ class PlaylistsPage(Gtk.Box):
         if not path:
             return
         pl = self._playlists[self._detail_playlist_index]
-        export_m3u8(pl, self.config.get("music_dir", "~/Music"), path)
+        export_m3u8(pl, path)
 
     def _refresh(self):
         self._load()

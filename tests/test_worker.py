@@ -1,5 +1,7 @@
 from gi.repository import GLib
 
+from skimmer import synccache
+from skimmer.playlist import Playlist, PlaylistTrack, export_m3u8
 from skimmer.worker import ProcessingManager, Task
 
 SAMPLE_CONFIG = {
@@ -9,6 +11,7 @@ SAMPLE_CONFIG = {
     "ytdlp_audio_format": "mp3",
     "mount_path": "/tmp/mount",
     "beets_lib": "",
+    "podcasts_dir": "/nonexistent-podcasts",
 }
 
 
@@ -93,3 +96,174 @@ class TestProcessingManager:
         pump_idle()
         assert len(fired) == 1
         assert fired[0] is task
+
+
+class TestExportM3u8:
+    def test_writes_relative_paths(self, tmp_path):
+        out = tmp_path / "Playlists" / "P.m3u8"
+        out.parent.mkdir()
+        pl = Playlist(
+            name="P",
+            tracks=[
+                PlaylistTrack(
+                    file_path=str(tmp_path / "Music" / "Artist" / "Album" / "a.mp3"),
+                    title="A",
+                    artist="Artist",
+                    duration=180,
+                ),
+                PlaylistTrack(
+                    file_path=str(tmp_path / "Music" / ".Spotify" / "Sp" / "Alb" / "s.mp3"),
+                    title="S",
+                    artist="Sp",
+                    duration=90,
+                ),
+            ],
+        )
+        export_m3u8(pl, str(out), paths=[t.file_path for t in pl.tracks])
+        content = out.read_text()
+        assert "../Music/Artist/Album/a.mp3" in content
+        assert "../Music/.Spotify/Sp/Alb/s.mp3" in content
+        assert "#EXTINF:180,Artist - A" in content
+
+    def test_keeps_relative_entries_untouched(self, tmp_path):
+        out = tmp_path / "P.m3u8"
+        pl = Playlist(
+            name="P",
+            tracks=[PlaylistTrack(file_path="../Music/Artist/a.mp3", title="A")],
+        )
+        export_m3u8(pl, str(out))
+        assert "../Music/Artist/a.mp3" in out.read_text()
+
+    def test_defaults_to_file_path(self, tmp_path):
+        out = tmp_path / "P.m3u8"
+        pl = Playlist(
+            name="P",
+            tracks=[PlaylistTrack(file_path=str(tmp_path / "Music" / "A" / "t.mp3"), title="T")],
+        )
+        export_m3u8(pl, str(out))
+        assert "Music/A/t.mp3" in out.read_text()
+
+
+class TestSyncSpotifyIgnore:
+    def _make_mgr(self, tmp_path, monkeypatch, spotify_paths):
+        music = tmp_path / "Music"
+        mount = tmp_path / "mount"
+        (music / "NormalA" / "Album").mkdir(parents=True)
+        (music / "SpotA" / "Alb").mkdir(parents=True)
+        open(music / "NormalA" / "Album" / "file.mp3", "wb").write(b"n")
+        open(music / "SpotA" / "Alb" / "s.mp3", "wb").write(b"s")
+
+        stale = mount / "Music" / "SpotA" / "Alb" / "s.mp3"
+        stale.parent.mkdir(parents=True)
+        open(stale, "wb").write(b"stale")
+
+        config = dict(SAMPLE_CONFIG)
+        config["music_dir"] = str(music)
+        config["mount_path"] = str(mount)
+        config["podcasts_dir"] = str(tmp_path / "no-podcasts")
+
+        synccache.save_cache(str(mount / ".skimmer-cache.json"), str(music), {})
+
+        monkeypatch.setattr("skimmer.worker.load_playlists", lambda: [])
+        monkeypatch.setattr("skimmer.worker.save_playlists", lambda playlists: None)
+
+        mgr = ProcessingManager(config)
+        mgr._spotify_paths = lambda: {str(music / p) for p in spotify_paths}
+        return mgr, music, mount
+
+    def test_spotify_imports_go_to_ignored_folder(self, tmp_path, monkeypatch):
+        mgr, music, mount = self._make_mgr(tmp_path, monkeypatch, ["SpotA/Alb/s.mp3"])
+        task = Task("sync", "Sync", {})
+        mgr._do_sync(task)
+
+        assert (mount / "Music" / "NormalA" / "Album" / "file.mp3").is_file()
+        assert (mount / "Music" / ".Spotify" / "SpotA" / "Alb" / "s.mp3").is_file()
+        assert (mount / "Music" / ".Spotify" / "database.ignore").is_file()
+        assert not (mount / "Music" / "SpotA" / "Alb" / "s.mp3").exists()
+        assert task.error is None
+
+    def test_non_spotify_files_unaffected(self, tmp_path, monkeypatch):
+        mgr, music, mount = self._make_mgr(tmp_path, monkeypatch, [])
+        task = Task("sync", "Sync", {})
+        mgr._do_sync(task)
+
+        assert (mount / "Music" / "NormalA" / "Album" / "file.mp3").is_file()
+        assert (mount / "Music" / "SpotA" / "Alb" / "s.mp3").is_file()
+        assert not (mount / "Music" / ".Spotify").exists()
+
+    def test_device_paths_mapping(self, tmp_path, monkeypatch):
+        mgr, music, mount = self._make_mgr(tmp_path, monkeypatch, ["SpotA/Alb/s.mp3"])
+        pl = Playlist(
+            name="P",
+            tracks=[
+                PlaylistTrack(file_path=str(music / "NormalA" / "Album" / "file.mp3")),
+                PlaylistTrack(file_path=str(music / "SpotA" / "Alb" / "s.mp3")),
+            ],
+        )
+        paths = mgr._device_paths(pl, {"SpotA/Alb/s.mp3"})
+        assert paths[0] == str(mount / "Music" / "NormalA" / "Album" / "file.mp3")
+        assert paths[1] == str(mount / "Music" / ".Spotify" / "SpotA" / "Alb" / "s.mp3")
+
+    def test_first_sync_copies_nested_dirs(self, tmp_path, monkeypatch):
+        music = tmp_path / "Music"
+        mount = tmp_path / "mount"
+        (music / "Artist" / "Album").mkdir(parents=True)
+        (music / "Artist" / "Another").mkdir(parents=True)
+        open(music / "Artist" / "Album" / "t1.mp3", "wb").write(b"a")
+        open(music / "Artist" / "Album" / "t2.flac", "wb").write(b"b")
+        open(music / "Artist" / "Another" / "t3.mp3", "wb").write(b"c")
+
+        config = dict(SAMPLE_CONFIG)
+        config["music_dir"] = str(music)
+        config["mount_path"] = str(mount)
+        config["podcasts_dir"] = str(tmp_path / "no-podcasts")
+
+        monkeypatch.setattr("skimmer.worker.load_playlists", lambda: [])
+        monkeypatch.setattr("skimmer.worker.save_playlists", lambda playlists: None)
+
+        mgr = ProcessingManager(config)
+        mgr._spotify_paths = lambda: set()
+
+        task = Task("sync", "Sync", {})
+        mgr._do_sync(task)
+
+        assert (mount / "Music" / "Artist" / "Album" / "t1.mp3").is_file()
+        assert (mount / "Music" / "Artist" / "Album" / "t2.flac").is_file()
+        assert (mount / "Music" / "Artist" / "Another" / "t3.mp3").is_file()
+        assert (mount / ".skimmer-cache.json").is_file()
+        assert task.error is None
+
+    def test_sync_uses_scanner_written_device_cache(self, tmp_path, monkeypatch):
+        music = tmp_path / "Music"
+        mount = tmp_path / "mount"
+        (music / "A").mkdir(parents=True)
+        open(music / "A" / "t.mp3", "wb").write(b"x")
+
+        config = dict(SAMPLE_CONFIG)
+        config["music_dir"] = str(music)
+        config["mount_path"] = str(mount)
+        config["podcasts_dir"] = str(tmp_path / "no-podcasts")
+
+        synccache.save_cache(
+            str(mount / ".skimmer-cache.json"),
+            str(mount / "Music"),
+            {"gone.flac": (0, 0, None)},
+        )
+
+        monkeypatch.setattr("skimmer.worker.load_playlists", lambda: [])
+        monkeypatch.setattr("skimmer.worker.save_playlists", lambda playlists: None)
+
+        mgr = ProcessingManager(config)
+        mgr._spotify_paths = lambda: set()
+
+        task = Task("sync", "Sync", {})
+        mgr._do_sync(task)
+
+        assert (mount / "Music" / "A" / "t.mp3").is_file()
+        assert not (mount / "Music" / "gone.flac").exists()
+        import json
+
+        data = json.loads((mount / ".skimmer-cache.json").read_text())
+        assert data["music_dir"] == str(music)
+        assert "A/t.mp3" in data["files"]
+        assert task.error is None

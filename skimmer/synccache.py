@@ -29,11 +29,11 @@ def _quick_hash(path):
         return None
 
 
-def load_cache(cache_path, music_dir):
+def load_cache(cache_path, music_dir=None):
     try:
         with open(cache_path, encoding="utf-8") as f:
             data = json.load(f)
-        if data.get("music_dir") == music_dir:
+        if music_dir is None or data.get("music_dir") == music_dir:
             files = data["files"]
             for k, v in files.items():
                 files[k] = (int(v[0]), v[1], v[2] if len(v) > 2 else None)

@@ -104,11 +104,22 @@ def resolve_cover(playlist: Playlist) -> str | None:
     return None
 
 
-def export_m3u8(playlist: Playlist, device_root: str, out_path: str):
+def export_m3u8(playlist: Playlist, out_path: str, paths: list[str] | None = None):
+    """Write an .m3u8 file.
+
+    Entries are written relative to the .m3u8's own directory so they resolve on
+    Rockbox. When ``paths`` is given it supplies the target path for each track
+    (e.g. paths on the device); otherwise each track's ``file_path`` is used.
+    """
+    playlist_dir = os.path.dirname(out_path)
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("#EXTM3U\n")
-        for track in playlist.tracks:
-            rel = os.path.relpath(track.file_path, device_root)
+        for i, track in enumerate(playlist.tracks):
+            target = paths[i] if paths is not None else track.file_path
+            if target and os.path.isabs(target):
+                rel = os.path.relpath(target, playlist_dir)
+            else:
+                rel = target
             duration_str = str(int(track.duration)) if track.duration else "-1"
             title_str = (
                 f"{track.artist} - {track.title}"

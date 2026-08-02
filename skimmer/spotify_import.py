@@ -189,6 +189,7 @@ class SpotifyImporter:
                     "noplaylist": True,
                     "quiet": True,
                     "no_warnings": True,
+                    "progress_hooks": [self._download_hook],
                     "postprocessors": [
                         {
                             "key": "FFmpegExtractAudio",
@@ -274,6 +275,8 @@ class SpotifyImporter:
                 except SpotifyImportError:
                     raise
                 except Exception as e:
+                    if self._cancelled:
+                        raise SpotifyImportError("Cancelled")
                     log.warning(f"[skimmer] Download failed for {artist} - {title}: {e}")
                     failed.append(f"{artist} - {title}")
 
@@ -299,6 +302,10 @@ class SpotifyImporter:
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
             log.info(f"[skimmer] Cleaned up temp dir {temp_dir}")
+
+    def _download_hook(self, d):
+        if self._cancelled:
+            raise SpotifyImportError("Cancelled")
 
     def _tag_file(self, fpath, entry):
         ext = os.path.splitext(fpath)[1].lower()

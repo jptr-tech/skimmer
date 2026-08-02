@@ -6,6 +6,7 @@ import sys
 import threading
 import time
 import uuid
+from collections.abc import Callable
 
 import yt_dlp
 from beets import context as beets_context
@@ -26,6 +27,10 @@ from skimmer.spotify_import import SpotifyImporter
 log = logging.getLogger(__name__)
 
 
+class TaskCancelled(Exception):
+    pass
+
+
 class Task(GObject.Object):
     __gsignals__ = {
         "updated": (GObject.SignalFlags.RUN_FIRST, None, (str, float, str)),
@@ -40,6 +45,8 @@ class Task(GObject.Object):
         self.status = "pending"
         self.progress = 0.0
         self.error = None
+        self.cancelled = False
+        self.cancel_cb: Callable[[], None] | None = None
 
 
 class ProcessingManager(GObject.Object):
@@ -72,10 +79,24 @@ class ProcessingManager(GObject.Object):
                 self.tasks.remove(task)
         GLib.idle_add(self.emit, "task-removed", task)
 
+    def cancel_task(self, task):
+        task.cancelled = True
+        cb = task.cancel_cb
+        if cb:
+            try:
+                cb()
+            except Exception:
+                pass
+
     def _run(self):
         while True:
             task = self._queue.get()
             log.info(f"[skimmer] Starting task [{task.id}] {task.type}: {task.title}")
+            if task.cancelled:
+                task.status = "cancelled"
+                task.emit("updated", task.status, task.progress, "Cancelled")
+                log.info(f"[skimmer] Task [{task.id}] cancelled before start")
+                continue
             task.status = "running"
             task.emit("updated", task.status, task.progress, "")
             try:
@@ -93,11 +114,20 @@ class ProcessingManager(GObject.Object):
                 task.progress = 1.0
                 task.emit("updated", task.status, task.progress, "")
                 log.info(f"[skimmer] Task [{task.id}] completed: {task.title}")
+            except TaskCancelled:
+                task.status = "cancelled"
+                task.emit("updated", task.status, task.progress, "Cancelled")
+                log.info(f"[skimmer] Task [{task.id}] cancelled: {task.title}")
             except Exception as e:
-                task.status = "failed"
-                task.error = str(e)
-                task.emit("updated", task.status, task.progress, str(e))
-                log.error(f"[skimmer] Task [{task.id}] FAILED: {task.title} — {e}")
+                if task.cancelled:
+                    task.status = "cancelled"
+                    task.emit("updated", task.status, task.progress, "Cancelled")
+                    log.info(f"[skimmer] Task [{task.id}] cancelled: {task.title}")
+                else:
+                    task.status = "failed"
+                    task.error = str(e)
+                    task.emit("updated", task.status, task.progress, str(e))
+                    log.error(f"[skimmer] Task [{task.id}] FAILED: {task.title} — {e}")
 
     def _do_download(self, task):
         album = task.data
@@ -120,6 +150,8 @@ class ProcessingManager(GObject.Object):
         )
 
         for i, track in enumerate(album["tracks"]):
+            if task.cancelled:
+                raise TaskCancelled("Download cancelled")
             log.info(
                 f"[skimmer]   Track {i + 1}/{total}: {track.get('title', '?')} (videoId: {track.get('videoId', 'none')})"
             )
@@ -162,12 +194,21 @@ class ProcessingManager(GObject.Object):
         log.info(
             f"[skimmer] Starting yt-dlp with {len(urls)} URLs, format={self.config['ytdlp_format']}"
         )
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download(urls)
+        if task.cancelled:
+            raise TaskCancelled("Download cancelled")
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download(urls)
+        except TaskCancelled:
+            shutil.rmtree(album_dir, ignore_errors=True)
+            log.info(f"[skimmer] Download cancelled, cleaned up {album_dir}")
+            raise
         log.info(f"[skimmer] Download complete: {album['artist']} - {album['title']}")
         log.info(f"[skimmer] Files saved to: {album_dir}")
 
     def _ytdlp_hook(self, d, task, total, vid_to_idx):
+        if task.cancelled:
+            raise TaskCancelled("Download cancelled")
         if d["status"] == "downloading":
             try:
                 pct_str = d.get("_percent_str", "0%").strip().replace("%", "")
@@ -227,37 +268,44 @@ class ProcessingManager(GObject.Object):
             from mutagen.mp4 import MP4
 
             tagged = 0
-            for fname in files:
-                fpath = os.path.join(album_dir, fname)
-                if not os.path.isfile(fpath):
-                    continue
-                ext = os.path.splitext(fname)[1].lower()
-                try:
-                    if ext == ".mp3":
-                        try:
-                            audio = EasyID3(fpath)
-                        except ID3NoHeaderError:
-                            audio = MutagenFile(fpath, easy=True)
-                            audio.add_tags()
-                    elif ext in (".m4a", ".mp4", ".m4b"):
-                        audio = MP4(fpath)
-                    elif ext == ".flac":
-                        from mutagen.flac import FLAC
-
-                        audio = FLAC(fpath)
-                    elif ext == ".opus":
-                        from mutagen.oggopus import OggOpus
-
-                        audio = OggOpus(fpath)
-                    else:
+            try:
+                for fname in files:
+                    if task.cancelled:
+                        raise TaskCancelled("Import cancelled")
+                    fpath = os.path.join(album_dir, fname)
+                    if not os.path.isfile(fpath):
                         continue
-                    audio["artist"] = artist
-                    audio["album"] = album_title
-                    audio["albumartist"] = artist
-                    audio.save()
-                    tagged += 1
-                except Exception as e:
-                    log.warning(f"[skimmer]   Warning: could not tag {fname}: {e}")
+                    ext = os.path.splitext(fname)[1].lower()
+                    try:
+                        if ext == ".mp3":
+                            try:
+                                audio = EasyID3(fpath)
+                            except ID3NoHeaderError:
+                                audio = MutagenFile(fpath, easy=True)
+                                audio.add_tags()
+                        elif ext in (".m4a", ".mp4", ".m4b"):
+                            audio = MP4(fpath)
+                        elif ext == ".flac":
+                            from mutagen.flac import FLAC
+
+                            audio = FLAC(fpath)
+                        elif ext == ".opus":
+                            from mutagen.oggopus import OggOpus
+
+                            audio = OggOpus(fpath)
+                        else:
+                            continue
+                        audio["artist"] = artist
+                        audio["album"] = album_title
+                        audio["albumartist"] = artist
+                        audio.save()
+                        tagged += 1
+                    except Exception as e:
+                        log.warning(f"[skimmer]   Warning: could not tag {fname}: {e}")
+            except TaskCancelled:
+                shutil.rmtree(album_dir, ignore_errors=True)
+                log.info("[skimmer] Import cancelled, cleaned up temp dir")
+                raise
             log.info(
                 f"[skimmer] Tagged {tagged}/{len(files)} files with artist={artist}, album={album_title}"
             )
@@ -272,14 +320,21 @@ class ProcessingManager(GObject.Object):
 
         audio_exts = {".mp3", ".flac", ".ogg", ".opus", ".m4a", ".mp4", ".m4b", ".wav"}
         copied = []
-        for fname in files:
-            ext = os.path.splitext(fname)[1].lower()
-            if ext not in audio_exts:
-                continue
-            src = os.path.join(album_dir, fname)
-            dst = os.path.join(album_dst, fname)
-            shutil.copy2(src, dst)
-            copied.append(dst)
+        try:
+            for fname in files:
+                if task.cancelled:
+                    raise TaskCancelled("Import cancelled")
+                ext = os.path.splitext(fname)[1].lower()
+                if ext not in audio_exts:
+                    continue
+                src = os.path.join(album_dir, fname)
+                dst = os.path.join(album_dst, fname)
+                shutil.copy2(src, dst)
+                copied.append(dst)
+        except TaskCancelled:
+            shutil.rmtree(album_dir, ignore_errors=True)
+            log.info("[skimmer] Import cancelled, cleaned up temp dir")
+            raise
         log.info(f"[skimmer] Copied {len(copied)} audio files to {album_dst}")
 
         try:
@@ -289,6 +344,8 @@ class ProcessingManager(GObject.Object):
 
             items = []
             for fpath in copied:
+                if task.cancelled:
+                    raise TaskCancelled("Import cancelled")
                 item = Item.from_path(fpath)
                 item.add(lib)
                 items.append(item)
@@ -417,10 +474,13 @@ class ProcessingManager(GObject.Object):
         try:
             if os.path.isfile(path):
                 os.remove(path)
-            elif os.path.isdir(path):
+                return True
+            if os.path.isdir(path):
                 shutil.rmtree(path, ignore_errors=True)
+                return True
         except OSError:
             pass
+        return False
 
     def _device_paths(self, pl, spotify_rels):
         """Map each playlist track to its absolute path on the device mount."""
@@ -487,9 +547,15 @@ class ProcessingManager(GObject.Object):
                 task.progress = 1.0
                 return
 
+            removed_rels = set()
             for p in sorted(deleted):
+                if task.cancelled:
+                    log.info("[skimmer] Sync: cancelled during deletions")
+                    self._persist_sync_cache(cache_path, src, cached, set(), removed_rels)
+                    raise TaskCancelled("Sync cancelled")
                 for dst_path in self._device_locations(dst, p, spotify_rels):
-                    self._remove_if_exists(dst_path)
+                    if self._remove_if_exists(dst_path):
+                        removed_rels.add(p)
 
             to_transfer = sorted(added) + sorted(modified)
             if not to_transfer:
@@ -506,6 +572,8 @@ class ProcessingManager(GObject.Object):
         else:
             to_transfer = sorted(synccache._walk(src))
             log.info(f"[skimmer] Sync: first sync — {len(to_transfer)} files")
+            cached = None
+            removed_rels = set()
 
         total = len(to_transfer)
         log.info(f"[skimmer] Sync: copying {total} files")
@@ -514,8 +582,13 @@ class ProcessingManager(GObject.Object):
         completed = 0
         last_tick = -1
         failed = []
+        copied_rels = set()
 
         for p in to_transfer:
+            if task.cancelled:
+                log.info(f"[skimmer] Sync: cancelled after {completed} files")
+                self._persist_sync_cache(cache_path, src, cached, copied_rels, removed_rels)
+                raise TaskCancelled("Sync cancelled")
             src_path = os.path.join(src, p)
             dst_path = self._device_locations(dst, p, spotify_rels)[0]
             try:
@@ -523,7 +596,12 @@ class ProcessingManager(GObject.Object):
                     os.makedirs(dst_path, exist_ok=True)
                 else:
                     os.makedirs(os.path.dirname(dst_path), exist_ok=True)
-                    shutil.copy2(src_path, dst_path)
+                    try:
+                        shutil.copy2(src_path, dst_path)
+                    except Exception:
+                        self._remove_if_exists(dst_path)
+                        raise
+                    copied_rels.add(p)
             except Exception as e:
                 log.warning(f"[skimmer] Sync:   failed to copy {p}: {e}")
                 failed.append(p)
@@ -546,13 +624,40 @@ class ProcessingManager(GObject.Object):
         log.info(f"[skimmer] Sync: copy finished ({completed} files)")
         GLib.idle_add(task.emit, "updated", task.status, 0.85, "Syncing playlists...")
         self._sync_playlists(task, dst, spotify_rels)
+        if task.cancelled:
+            log.info("[skimmer] Sync: cancelled during playlist sync")
+            synccache.update_cache(cache_path, src)
+            raise TaskCancelled("Sync cancelled")
         self._sync_podcasts(task)
+        if task.cancelled:
+            log.info("[skimmer] Sync: cancelled during podcast sync")
+            synccache.update_cache(cache_path, src)
+            raise TaskCancelled("Sync cancelled")
         GLib.idle_add(task.emit, "updated", task.status, 0.95, "Saving cache...")
         synccache.update_cache(cache_path, src)
         log.info(f"[skimmer] Sync: cache saved to {cache_path}")
         task.progress = 1.0
         GLib.idle_add(task.emit, "updated", task.status, 1.0, "Sync complete")
         log.info(f"[skimmer] Sync complete ({completed} files)")
+
+    def _persist_sync_cache(self, cache_path, src, cached, copied_rels, removed_rels):
+        files = {}
+        if cached:
+            files = {k: v for k, v in cached.items() if k not in removed_rels}
+        for rel in copied_rels:
+            path = os.path.join(src, rel)
+            try:
+                st = os.stat(path)
+                files[rel] = (int(st.st_mtime), st.st_size, synccache._quick_hash(path))
+            except OSError:
+                pass
+        try:
+            synccache.save_cache(cache_path, src, files)
+            log.info(
+                f"[skimmer] Sync: persisted partial cache ({len(files)} files) to {cache_path}"
+            )
+        except Exception as e:
+            log.warning(f"[skimmer] Sync: failed to persist cache on cancel: {e}")
 
     def _sync_playlists(self, task, music_dst, spotify_rels=None):
         mount_path = self.config.get("mount_path", "")
@@ -580,6 +685,9 @@ class ProcessingManager(GObject.Object):
 
         changed = False
         for name, pl in list(app_by_name.items()):
+            if task.cancelled:
+                log.info("[skimmer] Sync: playlist sync cancelled")
+                return
             dev_info = device_m3us.pop(name, None)
             if dev_info:
                 dev_path, dev_mtime = dev_info
@@ -604,6 +712,9 @@ class ProcessingManager(GObject.Object):
                     changed = True
 
         for name, (dev_path, _) in device_m3us.items():
+            if task.cancelled:
+                log.info("[skimmer] Sync: playlist sync cancelled")
+                return
             log.info(f"[skimmer] Sync: importing new playlist '{name}' from device")
             parsed = parse_m3u8(dev_path)
             if parsed:
@@ -639,6 +750,7 @@ class ProcessingManager(GObject.Object):
         log.info(f"[skimmer] Starting Spotify import: {url}")
 
         importer = SpotifyImporter(self.config)
+        task.cancel_cb = importer.cancel
 
         def emit_status(msg):
             GLib.idle_add(task.emit, "updated", task.status, task.progress, msg)
@@ -672,6 +784,7 @@ class ProcessingManager(GObject.Object):
             raise ValueError("No URL provided for podcast download")
 
         downloader = PodcastDownloader(self.config)
+        task.cancel_cb = downloader.cancel
 
         def emit_status(msg):
             GLib.idle_add(task.emit, "updated", task.status, task.progress, msg)

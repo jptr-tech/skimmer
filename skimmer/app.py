@@ -304,6 +304,13 @@ class SkimmerApp(Adw.Application):
             self.sync_btn.set_sensitive(True)
             self.eject_btn.set_sensitive(True)
             self._sync_task = None
+        elif status == "cancelled":
+            self.sync_label.set_text("Sync cancelled")
+            self.sync_spinner.stop()
+            self.sync_spinner.set_visible(False)
+            self.sync_btn.set_sensitive(True)
+            self.eject_btn.set_sensitive(True)
+            self._sync_task = None
 
     def _reset_sync_ui(self):
         self.sync_label.set_text("")

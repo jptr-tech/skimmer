@@ -236,6 +236,11 @@ class SearchPage(Gtk.Box):
             button.set_label("Download Album")
             button.add_css_class("suggested-action")
             button.remove_css_class("opaque")
+        elif status == "cancelled":
+            button.set_sensitive(True)
+            button.set_label("Download Album")
+            button.add_css_class("suggested-action")
+            button.remove_css_class("opaque")
 
     def _reset_button(self, button):
         button.set_label("Download Album")

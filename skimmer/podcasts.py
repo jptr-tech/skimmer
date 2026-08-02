@@ -20,8 +20,12 @@ class PodcastError(Exception):
 class PodcastDownloader:
     def __init__(self, config):
         self.config = config
+        self._cancelled = False
         self._on_status = None
         self._on_progress = None
+
+    def cancel(self):
+        self._cancelled = True
 
     def set_callbacks(self, on_status=None, on_progress=None):
         self._on_status = on_status
@@ -36,6 +40,7 @@ class PodcastDownloader:
             GLib.idle_add(self._on_progress, fraction, msg)
 
     def download(self, url):
+        self._cancelled = False
         podcasts_dir = resolve_podcasts_dir(self.config)
         os.makedirs(podcasts_dir, exist_ok=True)
         log.info(f"[skimmer] Podcast download starting: {url!r} -> {podcasts_dir}")
@@ -59,7 +64,12 @@ class PodcastDownloader:
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
+        except PodcastError:
+            raise
         except Exception as e:
+            if self._cancelled:
+                self._cleanup_partials(podcasts_dir)
+                raise PodcastError("Cancelled")
             log.error(f"[skimmer] Podcast download failed: {e}")
             raise PodcastError(f"Download failed: {e}")
 
@@ -86,6 +96,8 @@ class PodcastDownloader:
         }
 
     def _hook(self, d):
+        if self._cancelled:
+            raise PodcastError("Cancelled")
         if d["status"] == "downloading":
             try:
                 pct_str = d.get("_percent_str", "0%").strip().replace("%", "")
@@ -95,6 +107,16 @@ class PodcastDownloader:
             self._progress(frac, f"Downloading... {d.get('_percent_str', '').strip()}")
         elif d["status"] == "finished":
             self._progress(1.0, "Processing audio...")
+
+    @staticmethod
+    def _cleanup_partials(podcasts_dir):
+        for fpath in glob.glob(os.path.join(podcasts_dir, "*.part")) + glob.glob(
+            os.path.join(podcasts_dir, "*.ytdl")
+        ):
+            try:
+                os.remove(fpath)
+            except OSError:
+                pass
 
     @staticmethod
     def _find_output(info, podcasts_dir):

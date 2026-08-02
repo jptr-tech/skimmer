@@ -156,6 +156,8 @@ class PodcastsPage(Gtk.Box):
             self._load()
         elif status == "failed":
             self.status_lbl.set_text(f"Download failed: {task.error or message}")
+        elif status == "cancelled":
+            self.status_lbl.set_text("Download cancelled")
 
     def _on_delete(self, card):
         parent = self.get_root() if self.get_root() else None

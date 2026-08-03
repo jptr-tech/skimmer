@@ -172,11 +172,7 @@ class SpotifyImporter:
     def _cleanup_orphans(self, lib, music_dir):
         """Delete audio files under music_dir that are not indexed in beets."""
         try:
-            known = {
-                os.fsdecode(i.path)
-                for i in lib.items()
-                if i.path
-            }
+            known = {os.fsdecode(i.path) for i in lib.items() if i.path}
         except Exception as e:
             log.warning(f"[skimmer] Could not read beets items during cleanup: {e}")
             return
@@ -299,7 +295,9 @@ class SpotifyImporter:
                     os.makedirs(dest_dir, exist_ok=True)
 
                     dest_path = os.path.join(dest_dir, os.path.basename(found_file))
-                    partial_path = os.path.join(dest_dir, f".{os.path.basename(found_file)}.partial")
+                    partial_path = os.path.join(
+                        dest_dir, f".{os.path.basename(found_file)}.partial"
+                    )
                     shutil.copy2(found_file, partial_path)
                     os.replace(partial_path, dest_path)
                     entry["file_path"] = dest_path
@@ -395,16 +393,13 @@ class SpotifyImporter:
         album_obj.genre = "Spotify Import"
         album_obj.store()
         log.info(
-            f"[skimmer] Indexed '{item.title}' -> album "
-            f"'{album_obj.album}' (id={album_obj.id})"
+            f"[skimmer] Indexed '{item.title}' -> album '{album_obj.album}' (id={album_obj.id})"
         )
         try:
             from beets.autotag.match import tag_album
 
             album_items = list(album_obj.items())
-            _, _, proposal = tag_album(
-                album_items, search_artist=artist, search_name=album_title
-            )
+            _, _, proposal = tag_album(album_items, search_artist=artist, search_name=album_title)
             if proposal and proposal.candidates:
                 match = proposal.candidates[0]
                 match.apply_metadata()

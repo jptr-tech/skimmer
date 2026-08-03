@@ -15,6 +15,7 @@ from skimmer.playlist import (
     Playlist,
     PlaylistTrack,
     export_m3u8,
+    generate_playlist_cover,
     load_playlists,
     parse_m3u8,
     resolve_cover,
@@ -472,6 +473,7 @@ class PlaylistsPage(Gtk.Box):
         del pl.tracks[idx]
         pl.last_modified = time.time()
         self._save()
+        self._maybe_regenerate_cover(pl)
         self._build_detail_for(self._detail_playlist_index)
         self._rebuild_grid()
 
@@ -638,6 +640,20 @@ class PlaylistsPage(Gtk.Box):
             self.stack.set_visible_child_name("grid")
         self._rebuild_grid()
 
+    def _maybe_regenerate_cover(self, pl: Playlist):
+        """Regenerate playlist cover from track album covers if not manually set."""
+        if pl.cover_path:
+            return  # Preserve manual/Spotify cover
+        music_dir = self.config.get("music_dir", "")
+        if not music_dir:
+            return
+        cover_path = generate_playlist_cover(pl, music_dir)
+        if cover_path:
+            pl.cover_path = cover_path
+            self._save()
+            self._build_detail_for(self._detail_playlist_index)
+            self._rebuild_grid()
+
     def _on_add_tracks(self, *args):
         if self._detail_playlist_index < 0:
             return
@@ -648,6 +664,7 @@ class PlaylistsPage(Gtk.Box):
                 pl.tracks.append(t)
             pl.last_modified = time.time()
             self._save()
+            self._maybe_regenerate_cover(pl)
             self._build_detail_for(self._detail_playlist_index)
             self._rebuild_grid()
 
@@ -743,9 +760,11 @@ class PlaylistsPage(Gtk.Box):
         if existing:
             existing[0].tracks = pl.tracks
             existing[0].last_modified = time.time()
+            pl = existing[0]
         else:
             self._playlists.append(pl)
         self._save()
+        self._maybe_regenerate_cover(pl)
         self._rebuild_grid()
 
     def _on_import_spotify(self, *args):

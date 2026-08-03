@@ -87,9 +87,16 @@ class SpotifyImporter:
         self._status(f'Found playlist "{playlist_name}" — {total} tracks')
 
         lib = None
-        if os.path.exists(beets_db):
+        try:
+            os.makedirs(music_dir, exist_ok=True)
             beets_context.set_music_dir(bytestring_path(music_dir))
             lib = Library(beets_db, directory=music_dir)
+        except Exception as e:
+            log.error(f"[skimmer] Failed to open beets library {beets_db}: {e}")
+            lib = None
+
+        if lib:
+            self._cleanup_orphans(lib, music_dir)
 
         matched = 0
         to_download = []
@@ -162,7 +169,43 @@ class SpotifyImporter:
         self._status("Import complete")
         return result
 
+    def _cleanup_orphans(self, lib, music_dir):
+        """Delete audio files under music_dir that are not indexed in beets."""
+        try:
+            known = {
+                os.fsdecode(i.path)
+                for i in lib.items()
+                if i.path
+            }
+        except Exception as e:
+            log.warning(f"[skimmer] Could not read beets items during cleanup: {e}")
+            return
+
+        removed = 0
+        for root, _dirs, files in os.walk(music_dir):
+            for fname in files:
+                if fname.startswith(".") and fname.endswith(".partial"):
+                    continue
+                if not fname.lower().endswith((".mp3", ".m4a", ".flac", ".opus")):
+                    continue
+                fpath = os.path.join(root, fname)
+                if fpath in known or os.path.realpath(fpath) in known:
+                    continue
+                try:
+                    os.remove(fpath)
+                    removed += 1
+                    log.info(f"[skimmer] Removed orphan: {fpath}")
+                except OSError as e:
+                    log.warning(f"[skimmer] Failed to remove orphan {fpath}: {e}")
+        if removed:
+            log.info(f"[skimmer] Cleanup removed {removed} orphan audio file(s)")
+
     def _download_tracks(self, to_download, music_dir, lib, failed):
+        if lib is None:
+            raise SpotifyImportError(
+                "Beets library is unavailable; refusing to import so files are not orphaned."
+            )
+
         temp_dir = tempfile.mkdtemp(prefix="skimmer-spotify-")
         log.info(f"[skimmer] Download temp dir: {temp_dir}")
 
@@ -256,7 +299,9 @@ class SpotifyImporter:
                     os.makedirs(dest_dir, exist_ok=True)
 
                     dest_path = os.path.join(dest_dir, os.path.basename(found_file))
-                    shutil.copy2(found_file, dest_path)
+                    partial_path = os.path.join(dest_dir, f".{os.path.basename(found_file)}.partial")
+                    shutil.copy2(found_file, partial_path)
+                    os.replace(partial_path, dest_path)
                     entry["file_path"] = dest_path
 
                     # Download album cover
@@ -272,6 +317,19 @@ class SpotifyImporter:
 
                     log.info(f"[skimmer] Copied to: {dest_path}")
 
+                    # Index immediately so a mid-import abort never leaves an orphan file.
+                    try:
+                        self._import_one_track(lib, music_dir, entry, dest_path)
+                    except Exception as e:
+                        log.warning(f"[skimmer] Beets index failed for {dest_path}: {e}")
+                        try:
+                            os.remove(dest_path)
+                        except OSError:
+                            pass
+                        failed.append(f"{artist} - {title}")
+                        entry["file_path"] = ""
+                        continue
+
                 except SpotifyImportError:
                     raise
                 except Exception as e:
@@ -279,20 +337,6 @@ class SpotifyImporter:
                         raise SpotifyImportError("Cancelled")
                     log.warning(f"[skimmer] Download failed for {artist} - {title}: {e}")
                     failed.append(f"{artist} - {title}")
-
-            # Import new files into beets
-            if lib:
-                new_tracks = [
-                    (t["file_path"], t["artist"], t["album"])
-                    for t in to_download
-                    if t["file_path"] and t["file_path"].startswith(music_dir)
-                ]
-                if new_tracks:
-                    self._status("Importing into beets library...")
-                    try:
-                        self._import_to_beets(lib, music_dir, new_tracks)
-                    except Exception as e:
-                        log.warning(f"[skimmer] Beets import error: {e}", exc_info=True)
 
         except SpotifyImportError:
             raise
@@ -342,53 +386,33 @@ class SpotifyImporter:
         except Exception as e:
             log.warning(f"[skimmer] Failed to tag {fpath}: {e}")
 
-    def _import_to_beets(self, lib, music_dir, track_info_list):
-        seen_albums = {}
-        for fpath, artist, album in track_info_list:
-            if not os.path.exists(fpath) or os.path.getsize(fpath) == 0:
-                continue
-            try:
-                item = Item.from_path(fpath)
-                item.add(lib)
-                key = (artist, album)
-                if key not in seen_albums:
-                    seen_albums[key] = []
-                seen_albums[key].append(item)
-            except Exception as e:
-                log.warning(f"[skimmer] Failed to add {fpath}: {e}")
+    def _import_one_track(self, lib, music_dir, entry, fpath):
+        artist = entry["artist"]
+        album_title = entry["album"] or entry["title"]
+        item = Item.from_path(fpath)
+        item.add(lib)
+        album_obj = lib.add_album([item])
+        album_obj.genre = "Spotify Import"
+        album_obj.store()
+        log.info(
+            f"[skimmer] Indexed '{item.title}' -> album "
+            f"'{album_obj.album}' (id={album_obj.id})"
+        )
+        try:
+            from beets.autotag.match import tag_album
 
-        for (artist, album_title), items in seen_albums.items():
-            if items:
-                try:
-                    album_obj = lib.add_album(items)
-                    album_obj.genre = "Spotify Import"
-                    album_obj.store()
-                    log.info(f"[skimmer] Created album '{album_obj.album}' (id={album_obj.id})")
-                    try:
-                        from beets.autotag.match import tag_album
-
-                        album_items = list(album_obj.items())
-                        _, _, proposal = tag_album(
-                            album_items, search_artist=artist, search_name=album_title
-                        )
-                        if proposal and proposal.candidates:
-                            match = proposal.candidates[0]
-                            match.apply_metadata()
-                            for item in match.mapping:  # pyright: ignore[reportAttributeAccessIssue]
-                                item.try_write()
-                            album_obj.albumartist = match.info.artist
-                            album_obj.album = match.info.album
-                            album_obj.store()
-                            log.info(
-                                f"[skimmer] Autotagged: {match.info.artist} - {match.info.album}"
-                            )
-                    except Exception as e:
-                        log.warning(f"[skimmer] Autotag skipped: {e}")
-                except Exception as e:
-                    log.warning(f"[skimmer] Failed to create album {album_title}: {e}")
-
-        if lib:
-            try:
-                lib.store()
-            except Exception:
-                pass
+            album_items = list(album_obj.items())
+            _, _, proposal = tag_album(
+                album_items, search_artist=artist, search_name=album_title
+            )
+            if proposal and proposal.candidates:
+                match = proposal.candidates[0]
+                match.apply_metadata()
+                for item in match.mapping:  # pyright: ignore[reportAttributeAccessIssue]
+                    item.try_write()
+                album_obj.albumartist = match.info.artist
+                album_obj.album = match.info.album
+                album_obj.store()
+                log.info(f"[skimmer] Autotagged: {match.info.artist} - {match.info.album}")
+        except Exception as e:
+            log.warning(f"[skimmer] Autotag skipped: {e}")

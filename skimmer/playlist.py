@@ -104,6 +104,66 @@ def resolve_cover(playlist: Playlist) -> str | None:
     return None
 
 
+def _find_album_cover(track: PlaylistTrack) -> str | None:
+    if not track.file_path:
+        return None
+    album_dir = os.path.dirname(track.file_path)
+    if not os.path.isdir(album_dir):
+        return None
+    for name in ("cover.jpg", "cover.png", "front.jpg", "folder.jpg", "Cover.jpg"):
+        path = os.path.join(album_dir, name)
+        if os.path.exists(path):
+            return path
+    return None
+
+
+def generate_playlist_cover(playlist: Playlist, music_dir: str) -> str | None:
+    """Generate cover from track album covers:
+    - 1-3 tracks: first track's cover (256x256)
+    - 4+ tracks: 2x2 grid of first 4 covers (512x512)
+    Returns path to saved cover in COVERS_DIR/{uuid}.jpg, or None if no covers found.
+    """
+    if not playlist.tracks:
+        return None
+
+    covers = []
+    for track in playlist.tracks[:4]:
+        cover_path = _find_album_cover(track)
+        if cover_path:
+            covers.append(cover_path)
+
+    if not covers:
+        return None
+
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+
+    COVERS_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = COVERS_DIR / f"{playlist.uuid}.jpg"
+
+    if len(covers) == 1:
+        img = Image.open(covers[0]).convert("RGB")
+        img = img.resize((256, 256), Image.Resampling.LANCZOS)
+    else:
+        grid_size = 512
+        tile_size = 256
+        img = Image.new("RGB", (grid_size, grid_size), (0x22, 0x22, 0x22))
+        for i, cp in enumerate(covers[:4]):
+            try:
+                tile = Image.open(cp).convert("RGB")
+                tile = tile.resize((tile_size, tile_size), Image.Resampling.LANCZOS)
+            except Exception:
+                continue
+            x = (i % 2) * tile_size
+            y = (i // 2) * tile_size
+            img.paste(tile, (x, y))
+
+    img.save(out_path, "JPEG", quality=85)
+    return str(out_path)
+
+
 def export_m3u8(playlist: Playlist, out_path: str, paths: list[str] | None = None):
     """Write an .m3u8 file.
 

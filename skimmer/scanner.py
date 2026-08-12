@@ -3,6 +3,7 @@ import os
 import threading
 
 from skimmer import synccache
+from skimmer.config import resolve_path
 
 log = logging.getLogger(__name__)
 
@@ -58,7 +59,9 @@ class BackgroundScanner:
             return dict(self._local_cache) if self._local_cache else None
 
     def _load_local_cache(self):
-        cached = synccache.load_cache(self._local_cache_path, self.config["music_dir"])
+        cached = synccache.load_cache(
+            self._local_cache_path, resolve_path(self.config, "music_dir")
+        )
         with self._lock:
             self._local_cache = cached
 
@@ -87,7 +90,7 @@ class BackgroundScanner:
             self._on_status("Idle" if total_changed == 0 else f"Idle ({total_changed} changes)")
 
     def _scan_local(self):
-        music_dir = self.config["music_dir"]
+        music_dir = resolve_path(self.config, "music_dir")
         if not os.path.isdir(music_dir):
             log.info(f"[skimmer] Scanner: local music_dir not found: {music_dir}")
             return 0

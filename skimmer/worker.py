@@ -484,8 +484,10 @@ class ProcessingManager(GObject.Object):
 
     def _device_paths(self, pl, spotify_rels):
         """Map each playlist track to its absolute path on the device mount."""
+        from skimmer.config import resolve_path
+
         mount_path = self.config.get("mount_path", "")
-        music_dir = os.path.abspath(self.config["music_dir"])
+        music_dir = os.path.abspath(resolve_path(self.config, "music_dir"))
         paths = []
         for trk in pl.tracks:
             fp = trk.file_path
@@ -498,7 +500,9 @@ class ProcessingManager(GObject.Object):
         return paths
 
     def _do_sync(self, task):
-        src = self.config["music_dir"]
+        from skimmer.config import resolve_path
+
+        src = resolve_path(self.config, "music_dir")
         dst = os.path.join(self.config["mount_path"], "Music")
         if not os.path.isdir(src):
             raise FileNotFoundError(f"Source directory not found: {src}")
@@ -532,7 +536,7 @@ class ProcessingManager(GObject.Object):
                 f"[skimmer] Sync: diff from cache — +{len(added)} ~{len(modified)} -{len(deleted)}"
             )
             if modified:
-                for p in sorted(modified)[:5]:
+                for p in sorted(modified):
                     log.info(f"[skimmer] Sync:   modified: {p}")
 
             for rel in sorted(spotify_rels):
@@ -559,7 +563,7 @@ class ProcessingManager(GObject.Object):
 
             to_transfer = sorted(added) + sorted(modified)
             if not to_transfer:
-                for p in sorted(deleted)[:10]:
+                for p in sorted(deleted):
                     log.info(f"[skimmer] Sync:   deleted: {p}")
                 log.info("[skimmer] Sync: only deletions, skipping copy")
                 GLib.idle_add(task.emit, "updated", task.status, 0.95, "Saving cache...")

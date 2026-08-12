@@ -801,8 +801,11 @@ class PlaylistsPage(Gtk.Box):
             task = self._proc_mgr.add_task("spotify_import", "Spotify Import", {"url": url})
 
             def on_task_updated(t, status, progress, message):
-                try:
-                    if status == "completed":
+                if status != "completed":
+                    return
+
+                def _apply():
+                    try:
                         result = t.data.get("result")
                         if result:
                             playlists = load_playlists()
@@ -836,8 +839,10 @@ class PlaylistsPage(Gtk.Box):
                             self._load()
                             if self._on_library_refresh:
                                 self._on_library_refresh()
-                except Exception as e:
-                    log.exception(f"[skimmer] Spotify import callback failed: {e}")
+                    except Exception as e:
+                        log.exception(f"[skimmer] Spotify import callback failed: {e}")
+
+                GLib.idle_add(_apply)
 
             task.connect("updated", on_task_updated)
 

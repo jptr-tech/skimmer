@@ -85,7 +85,9 @@ class LibraryPage(Gtk.Box):
         log.info("[skimmer] Fetching missing album art...")
         GLib.idle_add(self.status_label.set_text, "Fetching missing album art...")
         try:
-            music_dir = os.path.expanduser(self.config.get("music_dir", "~/Music"))
+            from skimmer.config import resolve_path
+
+            music_dir = resolve_path(self.config, "music_dir")
             beets_context.set_music_dir(bytestring_path(music_dir))
             from beetsplug.fetchart import FetchArtPlugin
 

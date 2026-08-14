@@ -1,4 +1,4 @@
-.PHONY: help test lint format check clean install dev macos
+.PHONY: help test lint format check clean install dev macos flatpak flatpak-run
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -36,3 +36,9 @@ dev: ## Install with dev dependencies
 macos: ## Build macOS .app and .dmg
 	./build-aux/macos/build-app.sh
 	./build-aux/macos/make-dmg.sh
+
+flatpak: ## Build and install Flatpak
+	flatpak-builder --user --install --force-clean build-dir build-aux/flatpak/tech.jptr.Skimmer.yml
+
+flatpak-run: ## Run Flatpak build
+	flatpak run tech.jptr.Skimmer

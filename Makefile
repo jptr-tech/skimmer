@@ -1,4 +1,4 @@
-.PHONY: help test lint format check clean install dev macos flatpak flatpak-run
+.PHONY: help test lint format check clean install dev macos flatpak flatpak-deps flatpak-deps-force flatpak-clean flatpak-run
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -37,8 +37,18 @@ macos: ## Build macOS .app and .dmg
 	./build-aux/macos/build-app.sh
 	./build-aux/macos/make-dmg.sh
 
-flatpak: ## Build and install Flatpak
+flatpak: flatpak-deps ## Build and install Flatpak
 	flatpak-builder --user --install --force-clean build-dir build-aux/flatpak/tech.jptr.Skimmer.yml
+
+flatpak-deps: ## Regenerate Flatpak pypi deps (cached; no-op when unchanged)
+	bash build-aux/flatpak/update-deps.sh
+
+flatpak-deps-force: ## Force-regenerate Flatpak pypi deps
+	FORCE=1 bash build-aux/flatpak/update-deps.sh
+
+flatpak-clean: ## Remove Flatpak build state and dep stamp
+	rm -rf build-dir .flatpak-builder
+	rm -f build-aux/flatpak/.pypi-deps.stamp
 
 flatpak-run: ## Run Flatpak build
 	flatpak run tech.jptr.Skimmer

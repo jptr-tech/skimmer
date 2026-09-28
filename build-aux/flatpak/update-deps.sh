@@ -11,27 +11,20 @@ NATIVE_PKGS=(
 )
 JOINED=$(IFS=,; echo "${NATIVE_PKGS[*]}")
 
+# Packages provided by the org.gnome.Platform runtime. Bundling these either
+# duplicates the runtime or fails (pycairo's meson-python backend is absent
+# from the SDK), so skip them entirely.
+RUNTIME_PKGS=(
+  pygobject pycairo
+)
+JOINED_SKIP=$(IFS=,; echo "${RUNTIME_PKGS[*]}")
+
 cd "$PROJECT_DIR"
 uv export --format requirements-txt --no-dev --no-hashes \
-  | python3 -c "
-import sys, re
-from packaging.version import Version
+  | FLATPAK_SKIP="$JOINED_SKIP" python3 "$SCRIPT_DIR/filter-requirements.py" \
+  > "$SCRIPT_DIR/requirements.txt"
 
-deps = {}
-for line in sys.stdin:
-    line = line.strip()
-    if not line or line.startswith('#') or line.startswith('-e '):
-        continue
-    line = re.sub(r' ; .*', '', line)
-    if '==' in line:
-        name, ver = line.split('==', 1)
-        if name not in deps or Version(ver) > Version(deps[name]):
-            deps[name] = ver
-for name, ver in sorted(deps.items()):
-    print(f'{name}=={ver}')
-" > "$SCRIPT_DIR/requirements.txt"
-
-python3 -m flatpak_pip_generator \
+uvx --from flatpak-pip-generator python -m flatpak_pip_generator \
   --requirements-file="$SCRIPT_DIR/requirements.txt" \
   --runtime="$RUNTIME" \
   --prefer-wheels="$JOINED" \

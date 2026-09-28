@@ -417,3 +417,83 @@ class TestCancel:
             mgr._do_sync(task)
 
         assert not (mount / "Music" / "a.mp3").exists()
+
+
+class TestPodcastSync:
+    def _make_mgr(self, tmp_path, monkeypatch):
+        music = tmp_path / "Music"
+        mount = tmp_path / "mount"
+        podcasts = tmp_path / "Podcasts"
+        (music / "A").mkdir(parents=True)
+        open(music / "A" / "t.mp3", "wb").write(b"x")
+        podcasts.mkdir()
+        open(podcasts / "ep.mp3", "wb").write(b"pod")
+
+        config = dict(SAMPLE_CONFIG)
+        config["music_dir"] = str(music)
+        config["mount_path"] = str(mount)
+        config["podcasts_dir"] = str(podcasts)
+
+        monkeypatch.setattr("skimmer.worker.load_playlists", lambda: [])
+        monkeypatch.setattr("skimmer.worker.save_playlists", lambda playlists: None)
+
+        # Cache already reflects the music library, i.e. no music changes.
+        synccache.save_cache(
+            str(mount / ".skimmer-cache.json"),
+            str(music),
+            synccache._walk(str(music)),
+        )
+
+        mgr = ProcessingManager(config)
+        mgr._spotify_paths = lambda: set()
+        return mgr, music, mount, podcasts
+
+    def test_podcasts_synced_when_music_unchanged(self, tmp_path, monkeypatch):
+        mgr, _music, mount, _podcasts = self._make_mgr(tmp_path, monkeypatch)
+        task = Task("sync", "Sync", {})
+        mgr._do_sync(task)
+        assert (mount / "Podcasts" / "ep.mp3").is_file()
+
+    def test_podcast_sync_is_incremental(self, tmp_path, monkeypatch):
+        mgr, _music, mount, podcasts = self._make_mgr(tmp_path, monkeypatch)
+        pod_dst = mount / "Podcasts"
+        pod_dst.mkdir(parents=True)
+        shutil.copy2(podcasts / "ep.mp3", pod_dst / "ep.mp3")
+        open(pod_dst / "old.mp3", "wb").write(b"old")
+
+        copies = []
+        real_copy = shutil.copy2
+
+        def counting_copy(src, dst, *a, **k):
+            copies.append(str(dst))
+            return real_copy(src, dst, *a, **k)
+
+        monkeypatch.setattr(shutil, "copy2", counting_copy)
+
+        task = Task("sync", "Sync", {})
+        mgr._do_sync(task)
+
+        assert not (pod_dst / "old.mp3").exists()
+        assert all("ep.mp3" not in dst for dst in copies)
+
+
+class TestTaskUpdateOrdering:
+    def test_terminal_status_delivered_last(self, tmp_path):
+        config = dict(SAMPLE_CONFIG)
+        config["music_dir"] = str(tmp_path / "missing-music")
+        config["mount_path"] = str(tmp_path / "mount")
+        mgr = ProcessingManager(config)
+
+        task = mgr.add_task("sync", "Sync music to device", {})
+        seen = []
+        task.connect("updated", lambda t, s, p, m: seen.append(s))
+
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            pump_idle()
+            if seen and seen[-1] in ("completed", "failed", "cancelled"):
+                break
+            time.sleep(0.01)
+
+        assert seen, "no updates received"
+        assert seen[-1] == "failed"

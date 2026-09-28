@@ -88,17 +88,28 @@ class ProcessingManager(GObject.Object):
             except Exception:
                 pass
 
+    @staticmethod
+    def _post_update(task, status, progress, message):
+        """Marshal a task update to the main thread.
+
+        All updates go through GLib.idle_add so GTK handlers never run on the
+        worker thread. Because idle callbacks run FIFO, a terminal update queued
+        last is guaranteed to be delivered last and can't be overwritten by an
+        earlier progress message.
+        """
+        GLib.idle_add(task.emit, "updated", status, progress, message)
+
     def _run(self):
         while True:
             task = self._queue.get()
             log.info(f"[skimmer] Starting task [{task.id}] {task.type}: {task.title}")
             if task.cancelled:
                 task.status = "cancelled"
-                task.emit("updated", task.status, task.progress, "Cancelled")
+                self._post_update(task, task.status, task.progress, "Cancelled")
                 log.info(f"[skimmer] Task [{task.id}] cancelled before start")
                 continue
             task.status = "running"
-            task.emit("updated", task.status, task.progress, "")
+            self._post_update(task, task.status, task.progress, "")
             try:
                 if task.type == "download":
                     self._do_download(task)
@@ -112,21 +123,21 @@ class ProcessingManager(GObject.Object):
                     self._do_podcast(task)
                 task.status = "completed"
                 task.progress = 1.0
-                task.emit("updated", task.status, task.progress, "")
+                self._post_update(task, task.status, task.progress, "")
                 log.info(f"[skimmer] Task [{task.id}] completed: {task.title}")
             except TaskCancelled:
                 task.status = "cancelled"
-                task.emit("updated", task.status, task.progress, "Cancelled")
+                self._post_update(task, task.status, task.progress, "Cancelled")
                 log.info(f"[skimmer] Task [{task.id}] cancelled: {task.title}")
             except Exception as e:
                 if task.cancelled:
                     task.status = "cancelled"
-                    task.emit("updated", task.status, task.progress, "Cancelled")
+                    self._post_update(task, task.status, task.progress, "Cancelled")
                     log.info(f"[skimmer] Task [{task.id}] cancelled: {task.title}")
                 else:
                     task.status = "failed"
                     task.error = str(e)
-                    task.emit("updated", task.status, task.progress, str(e))
+                    self._post_update(task, task.status, task.progress, str(e))
                     log.error(f"[skimmer] Task [{task.id}] FAILED: {task.title} — {e}")
 
     def _do_download(self, task):
@@ -257,7 +268,7 @@ class ProcessingManager(GObject.Object):
         log.info(f"[skimmer] Importing {len(files)} files from {album_dir}")
         log.info(f"[skimmer]   music_dir = {music_dir}")
         log.info(f"[skimmer]   beets_lib = {beets_db}")
-        task.emit("updated", task.status, 0.0, "Tagging files...")
+        self._post_update(task, task.status, 0.0, "Tagging files...")
 
         artist = task.data.get("artist", "")
         album_title = task.data.get("title", "")
@@ -311,7 +322,7 @@ class ProcessingManager(GObject.Object):
             )
 
         log.info("[skimmer] Copying files to music library...")
-        task.emit("updated", task.status, 0.0, "Copying to music library...")
+        self._post_update(task, task.status, 0.0, "Copying to music library...")
 
         album_dst = (
             os.path.join(music_dir, artist, album_title) if artist and album_title else album_dir
@@ -528,8 +539,9 @@ class ProcessingManager(GObject.Object):
         else:
             log.info(f"[skimmer] Sync: no cache found at {cache_path}")
 
-        GLib.idle_add(task.emit, "updated", task.status, 0.0, "Indexing files...")
+        self._post_update(task, task.status, 0.0, "Indexing files...")
 
+        removed_rels = set()
         if cached is not None:
             added, modified, deleted = synccache.get_changes(src, cached)
             log.info(
@@ -546,12 +558,9 @@ class ProcessingManager(GObject.Object):
                     self._remove_if_exists(stale)
 
             if not added and not modified and not deleted:
-                log.info("[skimmer] Sync: no changes, skipping copy")
-                GLib.idle_add(task.emit, "updated", task.status, 1.0, "Already up to date")
-                task.progress = 1.0
-                return
+                log.info("[skimmer] Sync: no music changes, skipping copy")
+                self._post_update(task, task.status, 0.0, "Already up to date")
 
-            removed_rels = set()
             for p in sorted(deleted):
                 if task.cancelled:
                     log.info("[skimmer] Sync: cancelled during deletions")
@@ -562,71 +571,64 @@ class ProcessingManager(GObject.Object):
                         removed_rels.add(p)
 
             to_transfer = sorted(added) + sorted(modified)
-            if not to_transfer:
-                for p in sorted(deleted):
-                    log.info(f"[skimmer] Sync:   deleted: {p}")
-                log.info("[skimmer] Sync: only deletions, skipping copy")
-                GLib.idle_add(task.emit, "updated", task.status, 0.95, "Saving cache...")
-                synccache.update_cache(cache_path, src)
-                log.info(f"[skimmer] Sync: cache saved to {cache_path}")
-                task.progress = 1.0
-                GLib.idle_add(task.emit, "updated", task.status, 1.0, "Sync complete")
-                log.info("[skimmer] Sync complete (deletions only)")
-                return
         else:
             to_transfer = sorted(synccache._walk(src))
             log.info(f"[skimmer] Sync: first sync — {len(to_transfer)} files")
             cached = None
-            removed_rels = set()
 
         total = len(to_transfer)
-        log.info(f"[skimmer] Sync: copying {total} files")
-        GLib.idle_add(task.emit, "updated", task.status, 0.0, f"Copying {total} files...")
-
         completed = 0
-        last_tick = -1
         failed = []
         copied_rels = set()
 
-        for p in to_transfer:
-            if task.cancelled:
-                log.info(f"[skimmer] Sync: cancelled after {completed} files")
-                self._persist_sync_cache(cache_path, src, cached, copied_rels, removed_rels)
-                raise TaskCancelled("Sync cancelled")
-            src_path = os.path.join(src, p)
-            dst_path = self._device_locations(dst, p, spotify_rels)[0]
-            try:
-                if os.path.isdir(src_path):
-                    os.makedirs(dst_path, exist_ok=True)
-                else:
-                    os.makedirs(os.path.dirname(dst_path), exist_ok=True)
-                    try:
-                        shutil.copy2(src_path, dst_path)
-                    except Exception:
-                        self._remove_if_exists(dst_path)
-                        raise
-                    copied_rels.add(p)
-            except Exception as e:
-                log.warning(f"[skimmer] Sync:   failed to copy {p}: {e}")
-                failed.append(p)
-            completed += 1
-            pct = completed / total
-            tick = int(pct * 50)
-            if tick != last_tick:
-                last_tick = tick
-                task.progress = pct
-                GLib.idle_add(
-                    task.emit, "updated", task.status, pct, f"Copying... ({completed}/{total})"
-                )
-            if completed <= 5 or completed % 50 == 0:
-                log.info(f"[skimmer] Sync:   {completed}/{total}: {p[:120]}")
+        if total:
+            log.info(f"[skimmer] Sync: copying {total} files")
+            self._post_update(task, task.status, 0.0, f"Copying {total} files...")
 
-        if failed:
-            log.warning(f"[skimmer] Sync: {len(failed)} files failed: {failed[:5]}...")
-            raise RuntimeError(f"Sync failed: {len(failed)} files could not be copied")
+            last_tick = -1
+            for p in to_transfer:
+                if task.cancelled:
+                    log.info(f"[skimmer] Sync: cancelled after {completed} files")
+                    self._persist_sync_cache(cache_path, src, cached, copied_rels, removed_rels)
+                    raise TaskCancelled("Sync cancelled")
+                src_path = os.path.join(src, p)
+                dst_path = self._device_locations(dst, p, spotify_rels)[0]
+                try:
+                    if os.path.isdir(src_path):
+                        os.makedirs(dst_path, exist_ok=True)
+                    else:
+                        os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+                        try:
+                            shutil.copy2(src_path, dst_path)
+                        except Exception:
+                            self._remove_if_exists(dst_path)
+                            raise
+                        copied_rels.add(p)
+                except Exception as e:
+                    log.warning(f"[skimmer] Sync:   failed to copy {p}: {e}")
+                    failed.append(p)
+                completed += 1
+                pct = completed / total
+                tick = int(pct * 50)
+                if tick != last_tick:
+                    last_tick = tick
+                    task.progress = pct
+                    self._post_update(task, task.status, pct, f"Copying... ({completed}/{total})")
+                if completed <= 5 or completed % 50 == 0:
+                    log.info(f"[skimmer] Sync:   {completed}/{total}: {p[:120]}")
 
-        log.info(f"[skimmer] Sync: copy finished ({completed} files)")
-        GLib.idle_add(task.emit, "updated", task.status, 0.85, "Syncing playlists...")
+            if failed:
+                log.warning(f"[skimmer] Sync: {len(failed)} files failed: {failed[:5]}...")
+                raise RuntimeError(f"Sync failed: {len(failed)} files could not be copied")
+
+            log.info(f"[skimmer] Sync: copy finished ({completed} files)")
+        else:
+            log.info("[skimmer] Sync: no music files to copy")
+
+        # Playlists and podcasts live outside music_dir, so they are not part of
+        # the music diff above and must be synced on every run — including the
+        # no-music-changes path.
+        self._post_update(task, task.status, 0.85, "Syncing playlists...")
         self._sync_playlists(task, dst, spotify_rels)
         if task.cancelled:
             log.info("[skimmer] Sync: cancelled during playlist sync")
@@ -637,11 +639,11 @@ class ProcessingManager(GObject.Object):
             log.info("[skimmer] Sync: cancelled during podcast sync")
             synccache.update_cache(cache_path, src)
             raise TaskCancelled("Sync cancelled")
-        GLib.idle_add(task.emit, "updated", task.status, 0.95, "Saving cache...")
+        self._post_update(task, task.status, 0.95, "Saving cache...")
         synccache.update_cache(cache_path, src)
         log.info(f"[skimmer] Sync: cache saved to {cache_path}")
         task.progress = 1.0
-        GLib.idle_add(task.emit, "updated", task.status, 1.0, "Sync complete")
+        self._post_update(task, task.status, 1.0, "Sync complete")
         log.info(f"[skimmer] Sync complete ({completed} files)")
 
     def _persist_sync_cache(self, cache_path, src, cached, copied_rels, removed_rels):
@@ -743,8 +745,42 @@ class ProcessingManager(GObject.Object):
             return
         pod_dst = os.path.join(mount_path, "Podcasts")
         os.makedirs(pod_dst, exist_ok=True)
-        shutil.copytree(podcasts_dir, pod_dst, dirs_exist_ok=True)
-        log.info(f"[skimmer] Sync: podcasts copied to {pod_dst}")
+
+        src_rels = set()
+        copied = 0
+        for root, _dirs, files in os.walk(podcasts_dir):
+            for fname in files:
+                if task.cancelled:
+                    log.info("[skimmer] Sync: podcast sync cancelled")
+                    return
+                src = os.path.join(root, fname)
+                rel = os.path.relpath(src, podcasts_dir)
+                src_rels.add(rel)
+                dst = os.path.join(pod_dst, rel)
+                try:
+                    sst = os.stat(src)
+                    dst_st = os.stat(dst)
+                    if sst.st_size == dst_st.st_size and int(sst.st_mtime) <= int(dst_st.st_mtime):
+                        continue
+                except OSError:
+                    pass
+                try:
+                    os.makedirs(os.path.dirname(dst), exist_ok=True)
+                    shutil.copy2(src, dst)
+                    copied += 1
+                except OSError as e:
+                    log.warning(f"[skimmer] Sync: failed to copy podcast {rel}: {e}")
+
+        removed = 0
+        for root, _dirs, files in os.walk(pod_dst):
+            for fname in files:
+                dst = os.path.join(root, fname)
+                rel = os.path.relpath(dst, pod_dst)
+                if rel not in src_rels and self._remove_if_exists(dst):
+                    removed += 1
+        log.info(
+            f"[skimmer] Sync: podcasts synced to {pod_dst} ({copied} copied, {removed} removed)"
+        )
 
     def _do_spotify_import(self, task):
         url = task.data.get("url", "")

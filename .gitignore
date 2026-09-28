@@ -6,6 +6,7 @@ uv.lock
 AGENTS.md
 y1_skimmer.egg-info/
 skimmer.egg-info/
+.flatpak-builder/
 build-dir/
 build/
 dist/

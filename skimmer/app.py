@@ -369,8 +369,13 @@ class SkimmerApp(Adw.Application):
 
     def _on_proc_change(self, *args):
         self._update_proc_badge()
-        if isinstance(args[0], Task) and args[1] == "completed" and args[0].type == "import":
+        if not isinstance(args[0], Task) or args[1] != "completed":
+            return
+        task = args[0]
+        if task.type == "import":
             GLib.idle_add(self.pages["library"]._refresh)
+        elif task.type == "podcast" and self._last_connected and self._sync_task is None:
+            GLib.idle_add(self._do_sync)
 
     def _update_proc_badge(self):
         active = sum(1 for t in self.proc_mgr.tasks if t.status in ("pending", "running"))

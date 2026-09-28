@@ -4,6 +4,8 @@
   "exclude": [
     "**/__pycache__",
     ".venv",
+    ".flatpak-builder",
+    "build-dir",
     "build",
     "dist",
     "skimmer.egg-info",

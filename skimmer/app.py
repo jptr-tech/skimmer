@@ -7,6 +7,7 @@ from skimmer.config import load_config, save_config
 from skimmer.gtk import Adw, Gdk, Gio, GLib, Gtk
 from skimmer.library import LibraryPage
 from skimmer.media_integration import create_integration
+from skimmer.mounts import find_mount_for_path, unmount_mount
 from skimmer.player import PlayerBar
 from skimmer.playlists_ui import PlaylistsPage
 from skimmer.podcasts_ui import PodcastsPage
@@ -322,36 +323,49 @@ class SkimmerApp(Adw.Application):
         return GLib.SOURCE_REMOVE
 
     def _do_eject(self, *args):
+        mount_path = self.config["mount_path"]
+        if not mount_path:
+            return
         self.eject_btn.set_sensitive(False)
         self.sync_btn.set_sensitive(False)
         self.sync_label.set_text("Ejecting...")
-        threading.Thread(target=self._eject_thread, daemon=True).start()
 
-    def _eject_thread(self):
-        mount_path = self.config["mount_path"]
+        if sys.platform == "darwin":
+            threading.Thread(target=self._eject_darwin, args=(mount_path,), daemon=True).start()
+            return
+
+        mount = find_mount_for_path(Gio.VolumeMonitor.get().get_mounts(), mount_path)
+        if mount is None:
+            self._on_eject_done(f"Mount not found: {mount_path}")
+            return
+        log.info(f"[skimmer] Ejecting {mount_path}")
+        unmount_mount(mount, self._on_unmount_done)
+
+    def _on_unmount_done(self, ok, message):
+        self._on_eject_done(None if ok else (message or "Eject failed"))
+
+    def _eject_darwin(self, mount_path):
+        import subprocess
+
+        vol_name = os.path.basename(mount_path)
         try:
-            for mount in Gio.VolumeMonitor.get().get_mounts():
-                if mount.get_root().get_path() == mount_path:
-                    mount.unmount(Gio.MountUnmountFlags.NONE, None)
-                    GLib.idle_add(self._on_eject_done, None)
-                    return
-            if sys.platform == "darwin":
-                import subprocess
-
-                vol_name = os.path.basename(mount_path)
-                subprocess.run(["diskutil", "eject", vol_name], capture_output=True)
+            result = subprocess.run(["diskutil", "eject", vol_name], capture_output=True, text=True)
+            if result.returncode != 0:
+                message = (result.stderr or result.stdout).strip() or "diskutil eject failed"
+                GLib.idle_add(self._on_eject_done, message)
+            else:
                 GLib.idle_add(self._on_eject_done, None)
-                return
-            GLib.idle_add(self._on_eject_done, f"Mount not found: {mount_path}")
         except Exception as e:
             GLib.idle_add(self._on_eject_done, str(e))
 
     def _on_eject_done(self, error):
         if error:
+            log.warning(f"[skimmer] Eject failed: {error}")
             self.sync_label.set_text(f"Eject failed: {error}")
             self.eject_btn.set_sensitive(True)
             self.sync_btn.set_sensitive(True)
         else:
+            log.info("[skimmer] Eject complete")
             self.sync_label.set_text("Ejected safely")
             self.eject_btn.set_visible(False)
             self.sync_btn.set_visible(False)

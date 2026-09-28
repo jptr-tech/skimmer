@@ -33,7 +33,7 @@ device can easily get and sync music.
 
 ## Dependencies
 
-- Python ≥ 3.11
+- Python
 - GTK4, Adwaita, GStreamer (provided by GNOME Platform runtime on Flatpak)
 - [uv](https://docs.astral.sh/uv/) — project manager
 
@@ -42,8 +42,7 @@ device can easily get and sync music.
 ### Linux (Flatpak)
 
 ```bash
-flatpak-builder --user --install --force-clean build-dir build-aux/flatpak/tech.jptr.Skimmer.yml
-flatpak run tech.jptr.Skimmer
+make flatpak
 ```
 
 ### macOS (Homebrew)
@@ -68,13 +67,6 @@ uv sync
 uv run skimmer
 ```
 
-## Updating dependencies
-
-1. Edit `pyproject.toml`
-2. `uv sync`
-3. `bash build-aux/flatpak/update-deps.sh` (regenerates Flatpak dep bundle,
-   neccesary because of python deps needing to be prefetched)
-
 ## Development
 
 Lint, format, type-check, and test:
@@ -85,13 +77,6 @@ uv run ruff check         # lint
 uv run ruff format        # format
 uv run pyright            # type checking (0 errors expected)
 uv run pytest -q          # tests
-```
-
-Optional pre-commit hooks (ruff + pyright):
-
-```bash
-uv tool install pre-commit
-pre-commit install
 ```
 
 CI (GitHub Actions) runs `make test` on every push and pull request.

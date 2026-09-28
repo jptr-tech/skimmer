@@ -428,6 +428,7 @@ class TestPodcastSync:
         open(music / "A" / "t.mp3", "wb").write(b"x")
         podcasts.mkdir()
         open(podcasts / "ep.mp3", "wb").write(b"pod")
+        open(podcasts / "ep.jpg", "wb").write(b"img")
 
         config = dict(SAMPLE_CONFIG)
         config["music_dir"] = str(music)
@@ -475,6 +476,26 @@ class TestPodcastSync:
 
         assert not (pod_dst / "old.mp3").exists()
         assert all("ep.mp3" not in dst for dst in copies)
+
+    def test_thumbnails_are_not_synced(self, tmp_path, monkeypatch):
+        mgr, _music, mount, _podcasts = self._make_mgr(tmp_path, monkeypatch)
+        task = Task("sync", "Sync", {})
+        mgr._do_sync(task)
+
+        assert (mount / "Podcasts" / "ep.mp3").is_file()
+        assert not (mount / "Podcasts" / "ep.jpg").exists()
+
+    def test_existing_device_thumbnails_are_removed(self, tmp_path, monkeypatch):
+        mgr, _music, mount, _podcasts = self._make_mgr(tmp_path, monkeypatch)
+        pod_dst = mount / "Podcasts"
+        pod_dst.mkdir(parents=True)
+        open(pod_dst / "ep.jpg", "wb").write(b"old-thumb")
+
+        task = Task("sync", "Sync", {})
+        mgr._do_sync(task)
+
+        assert not (pod_dst / "ep.jpg").exists()
+        assert (pod_dst / "ep.mp3").is_file()
 
 
 class TestTaskUpdateOrdering:

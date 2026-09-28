@@ -11,6 +11,9 @@ from skimmer.config import resolve_podcasts_dir
 log = logging.getLogger(__name__)
 
 AUDIO_EXTS = {".mp3", ".m4a", ".m4b", ".opus", ".flac", ".wav", ".ogg", ".mp4"}
+# Thumbnails are kept locally for the podcast cards but are never synced to a
+# device.
+IMG_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 
 
 class PodcastError(Exception):

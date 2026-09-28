@@ -3,11 +3,10 @@ import os
 
 from skimmer.config import resolve_podcasts_dir
 from skimmer.gtk import GdkPixbuf, Gtk, Pango
+from skimmer.podcasts import AUDIO_EXTS, IMG_EXTS
 
 log = logging.getLogger(__name__)
 
-AUDIO_EXTS = {".mp3", ".m4a", ".m4b", ".opus", ".flac", ".wav", ".ogg", ".mp4"}
-IMG_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 CARD_SIZE = 150
 
 

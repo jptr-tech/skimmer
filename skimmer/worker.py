@@ -21,7 +21,7 @@ from skimmer.playlist import (
     parse_m3u8,
     save_playlists,
 )
-from skimmer.podcasts import PodcastDownloader
+from skimmer.podcasts import IMG_EXTS, PodcastDownloader
 from skimmer.spotify_import import SpotifyImporter
 
 log = logging.getLogger(__name__)
@@ -753,6 +753,10 @@ class ProcessingManager(GObject.Object):
                 if task.cancelled:
                     log.info("[skimmer] Sync: podcast sync cancelled")
                     return
+                if os.path.splitext(fname)[1].lower() in IMG_EXTS:
+                    # Thumbnails stay local for the podcast cards; leaving them
+                    # out of src_rels also removes any already on the device.
+                    continue
                 src = os.path.join(root, fname)
                 rel = os.path.relpath(src, podcasts_dir)
                 src_rels.add(rel)
